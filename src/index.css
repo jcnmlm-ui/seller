@@ -1,0 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Noto Sans TC', sans-serif;
+    @apply bg-stone-50 text-stone-900;
+  }
+}
+
+/* ── 列印共用樣式 ─────────────────────────────── */
+@media print {
+  body { background: white !important; }
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+}
+
+.print-only { display: none; }
+
+/* ── 自定義元件 ───────────────────────────────── */
+@layer components {
+  .btn-primary {
+    @apply bg-red-500 text-white font-bold px-5 py-3 rounded-xl 
+           active:scale-95 transition-all disabled:opacity-40 
+           disabled:cursor-not-allowed hover:bg-red-600;
+  }
+  .btn-secondary {
+    @apply bg-stone-100 text-stone-700 font-semibold px-5 py-3 rounded-xl 
+           active:scale-95 transition-all hover:bg-stone-200;
+  }
+  .btn-ghost {
+    @apply text-stone-500 font-medium px-4 py-2 rounded-lg 
+           hover:bg-stone-100 transition-all;
+  }
+  .card {
+    @apply bg-white rounded-2xl border border-stone-200 overflow-hidden;
+  }
+  .input {
+    @apply w-full border border-stone-300 rounded-xl px-4 py-3 text-stone-900 
+           placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-red-400 
+           focus:border-transparent transition-all;
+  }
+  .label {
+    @apply block text-sm font-semibold text-stone-600 mb-1;
+  }
+  .section-title {
+    @apply text-xl font-bold text-stone-800 mb-4;
+  }
+  .badge {
+    @apply inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold;
+  }
+}
+
+/* ── 數量按鈕 ─────────────────────────────────── */
+.qty-btn {
+  @apply w-8 h-8 rounded-full flex items-center justify-center 
+         text-stone-600 border border-stone-300 hover:bg-stone-100 
+         active:scale-90 transition-all font-bold text-lg;
+}
+
+/* ── 頁面進場動畫 ─────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fadeUp 0.25s ease both; }
+
+/* ── Toast 通知 ───────────────────────────────── */
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(100%); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.toast-enter { animation: slideIn 0.25s ease both; }
