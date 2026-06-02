@@ -264,6 +264,7 @@ export default function OrderDashboard() {
           </button>
           <Link to="/admin/products" className="text-stone-400 hover:text-white"><Package size={18} /></Link>
           <Link to="/booth" className="text-stone-400 hover:text-white text-sm">攤位</Link>
+          <Link to="/admin/reports" className="text-stone-400 hover:text-white text-sm">📊</Link>
           <button onClick={signOut} className="text-stone-400 hover:text-white p-2"><LogOut size={18} /></button>
         </div>
       </header>
