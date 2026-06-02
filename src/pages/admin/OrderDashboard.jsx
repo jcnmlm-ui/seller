@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-https://github.com/jcnmlm-ui/seller/raw/refs/heads/main/src/pages/admin/OrderDashboard.jsxrouter-dom'
 import { useReactToPrint } from 'react-to-print'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
@@ -93,14 +93,14 @@ export default function OrderDashboard() {
 
   // 列印 A4
   const printA4 = useReactToPrint({
-    contentRef: printRef,
+    content: () => printRef.current,
     pageStyle: '@page { size: A4 portrait; margin: 12mm; }',
     onAfterPrint: () => setPrintTarget(null),
   })
 
   // 列印 A5
   const printA5 = useReactToPrint({
-    contentRef: printRef,
+    content: () => printRef.current,
     pageStyle: '@page { size: A5 portrait; margin: 8mm; }',
     onAfterPrint: () => setPrintTarget(null),
   })
