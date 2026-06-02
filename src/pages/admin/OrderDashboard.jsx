@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { flushSync } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useReactToPrint } from 'react-to-print'
 import { supabase } from '../../lib/supabase'
@@ -21,7 +22,6 @@ export default function OrderDashboard() {
   const [newAlert, setNewAlert] = useState(false)
   const [printTarget, setPrintTarget] = useState(null)
   const [printType, setPrintType] = useState('a4')
-  const [shouldPrint, setShouldPrint] = useState(false)
   const printRef = useRef(null)
   const { signOut } = useAuth()
 
@@ -52,15 +52,6 @@ export default function OrderDashboard() {
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [loadOrders])
-
-  // 等 printTarget 渲染進 DOM 後才觸發列印
-  useEffect(() => {
-    if (shouldPrint && printTarget && printRef.current) {
-      setShouldPrint(false)
-      if (printType === 'a4') printA4()
-      else printA5()
-    }
-  }, [shouldPrint, printTarget])
 
   async function loadItems(orderId) {
     if (orderItems[orderId]) return
@@ -111,12 +102,16 @@ export default function OrderDashboard() {
     onAfterPrint: () => setPrintTarget(null),
   })
 
-  function handlePrint(order, type) {
-    setPrintType(type)
-    loadItems(order.id).then(() => {
+  // flushSync 強制 React 同步更新 DOM，確保 printRef 有內容後才呼叫列印
+  async function handlePrint(order, type) {
+    await loadItems(order.id)
+    flushSync(() => {
+      setPrintType(type)
       setPrintTarget(order)
-      setShouldPrint(true)
     })
+    // DOM 已同步更新，直接列印
+    if (type === 'a4') printA4()
+    else printA5()
   }
 
   const displayed = orders
@@ -219,8 +214,8 @@ export default function OrderDashboard() {
         )}
       </div>
 
-      {/* 隱藏列印元件 — ref 必須永遠掛著，不能用條件式包住外層 */}
-      <div className="hidden">
+      {/* 列印元件 — ref 永遠掛在 DOM，只有內容是條件式 */}
+      <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
         <div ref={printRef}>
           {printTarget && (
             printType === 'a4'
@@ -239,7 +234,6 @@ function OrderCard({ order, items, isExpanded, onToggle, onUpdateStatus, onPrint
 
   return (
     <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
-      {/* 訂單頭 */}
       <div
         className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-stone-50 transition-colors"
         onClick={onToggle}
@@ -270,17 +264,14 @@ function OrderCard({ order, items, isExpanded, onToggle, onUpdateStatus, onPrint
         }
       </div>
 
-      {/* 展開內容 */}
       {isExpanded && (
         <div className="border-t border-stone-100 px-4 py-4 space-y-4">
-          {/* 地址 */}
           <div className="text-sm">
             <span className="text-stone-400">收件地址：</span>
             <span className="text-stone-700">{order.receiver_address}</span>
             {order.note && <span className="text-stone-400 ml-2">（備註：{order.note}）</span>}
           </div>
 
-          {/* 商品明細 */}
           {items ? (
             <div className="bg-stone-50 rounded-lg divide-y divide-stone-100">
               {items.map(item => (
@@ -308,7 +299,6 @@ function OrderCard({ order, items, isExpanded, onToggle, onUpdateStatus, onPrint
             </div>
           )}
 
-          {/* 操作按鈕 */}
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => onPrint('a4')}
