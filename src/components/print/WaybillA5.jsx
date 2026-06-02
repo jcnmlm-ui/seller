@@ -1,37 +1,31 @@
-// ─── A5 託運單（貼包裹用）──────────────────────────────────
-// 內容：寄件人 + 收件人（大字） + 訂單號 QR + 條碼 + 商品摘要
+// ─── A5 託運單：無金額、無備註、郵遞區號大字、退回聲明 ─────
 import { useEffect, useRef } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import JsBarcode from 'jsbarcode'
 import { STORE } from '../../config/store'
 
-function Barcode({ value, height = 35 }) {
+function Barcode({ value, height = 32 }) {
   const ref = useRef(null)
   useEffect(() => {
     if (ref.current && value) {
       try {
         JsBarcode(ref.current, value, {
-          format: 'CODE128',
-          height,
-          displayValue: true,
-          fontSize: 10,
-          margin: 3,
+          format: 'CODE128', height, displayValue: true, fontSize: 10, margin: 3,
         })
       } catch {}
     }
   }, [value, height])
   if (!value) return null
-  return <svg ref={ref} style={{ width:'100%', maxWidth:'200px' }} />
+  return <svg ref={ref} style={{ width:'100%', maxWidth:'180px' }} />
 }
 
 export default function WaybillA5({ order, items }) {
-  const itemSummary = items
-    .map(i => `${i.product_name}×${i.quantity}`)
-    .join('、')
-
-  // 線上訂單頁網址（用於 QR Code）
+  const postalCode = order.receiver_postal_code || ''
   const baseUrl = window.location.origin + window.location.pathname
   const orderUrl = `${baseUrl}#/order/${order.order_no}`
+
+  // 商品摘要：只列品項，不含金額
+  const itemSummary = items.map(i => `${i.product_name}×${i.quantity}`).join('、')
 
   return (
     <div style={{
@@ -39,63 +33,89 @@ export default function WaybillA5({ order, items }) {
       fontSize: '13px',
       color: '#000',
       width: '148mm',
-      minHeight: '210mm',
-      padding: '0',
-      boxSizing: 'border-box',
+      minHeight: '205mm',
+      display: 'flex',
+      flexDirection: 'column',
     }}>
 
-      {/* 寄件人 */}
-      <div style={{ border:'2px solid #000', borderRadius:'6px', padding:'10px 12px', marginBottom:'8px' }}>
-        <div style={{ fontSize:'10px', color:'#666', letterSpacing:'2px', marginBottom:'4px' }}>寄 件 人</div>
-        <div style={{ fontWeight:'900', fontSize:'15px' }}>{STORE.name}</div>
-        <div style={{ fontSize:'12px', color:'#333' }}>{STORE.phone}</div>
+      {/* ── 寄件人（緊湊） ── */}
+      <div style={{ border:'1.5px solid #000', borderRadius:'5px',
+                    padding:'8px 12px', marginBottom:'7px' }}>
+        <div style={{ fontSize:'9px', color:'#888', letterSpacing:'3px',
+                      marginBottom:'3px' }}>寄　件　人</div>
+        <div style={{ fontWeight:'900', fontSize:'13px' }}>{STORE.name}</div>
+        <div style={{ fontSize:'12px' }}>{STORE.phone}</div>
         <div style={{ fontSize:'12px', color:'#333' }}>{STORE.address}</div>
       </div>
 
-      {/* 收件人（大字） */}
-      <div style={{ border:'3px solid #000', borderRadius:'6px', padding:'12px', marginBottom:'10px', background:'#fafafa' }}>
-        <div style={{ fontSize:'10px', color:'#666', letterSpacing:'2px', marginBottom:'6px' }}>收 件 人</div>
-        <div style={{ fontWeight:'900', fontSize:'26px', lineHeight:'1.2', marginBottom:'6px' }}>
+      {/* ── 收件人（主角，大字）── */}
+      <div style={{ border:'3px solid #000', borderRadius:'6px',
+                    padding:'12px 14px', marginBottom:'8px', flex:'1' }}>
+        <div style={{ fontSize:'9px', color:'#888', letterSpacing:'3px', marginBottom:'7px' }}>
+          收　件　人
+        </div>
+
+        {/* 姓名 */}
+        <div style={{ fontWeight:'900', fontSize:'28px', lineHeight:'1.15',
+                      marginBottom:'5px' }}>
           {order.receiver_name}
         </div>
-        <div style={{ fontWeight:'bold', fontSize:'16px', marginBottom:'4px' }}>
+
+        {/* 電話 */}
+        <div style={{ fontWeight:'700', fontSize:'18px', marginBottom:'8px',
+                      letterSpacing:'1px' }}>
           {order.receiver_phone}
         </div>
-        <div style={{ fontSize:'14px', lineHeight:'1.5' }}>
-          {order.receiver_address}
-        </div>
-        {order.note && (
-          <div style={{ marginTop:'6px', background:'#fffde7', border:'1px solid #ffe082', borderRadius:'4px', padding:'4px 8px', fontSize:'12px' }}>
-            備註：{order.note}
+
+        {/* 郵遞區號（大字，3+3） */}
+        {postalCode && (
+          <div style={{ fontWeight:'900', fontSize:'26px', fontFamily:'monospace',
+                        letterSpacing:'6px', color:'#1a1a2e', lineHeight:'1',
+                        marginBottom:'4px', borderBottom:'1px dashed #ccc',
+                        paddingBottom:'6px' }}>
+            {postalCode}
           </div>
         )}
+
+        {/* 地址 */}
+        <div style={{ fontSize:'16px', lineHeight:'1.6', fontWeight:'500',
+                      marginTop:'4px' }}>
+          {order.receiver_address}
+        </div>
       </div>
 
-      {/* 訂單號 + QR + 條碼 */}
-      <div style={{ border:'1px solid #ccc', borderRadius:'6px', padding:'10px', marginBottom:'8px' }}>
-        <div style={{ display:'flex', alignItems:'flex-start', gap:'12px' }}>
-          {/* QR Code */}
+      {/* ── 訂單號 + QR Code ── */}
+      <div style={{ border:'1px solid #ccc', borderRadius:'5px',
+                    padding:'8px 10px', marginBottom:'7px' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
           <div style={{ flexShrink:0 }}>
-            <QRCodeSVG value={orderUrl} size={80} level="M" />
+            <QRCodeSVG value={orderUrl} size={72} level="M" />
           </div>
-          {/* 訂單資訊 */}
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:'10px', color:'#888', letterSpacing:'1px' }}>訂單號碼</div>
-            <div style={{ fontFamily:'monospace', fontWeight:'bold', fontSize:'13px', marginBottom:'4px' }}>
+            <div style={{ fontSize:'9px', color:'#888', letterSpacing:'1px' }}>訂單號碼</div>
+            <div style={{ fontFamily:'monospace', fontWeight:'bold', fontSize:'12px',
+                          marginBottom:'3px' }}>
               {order.order_no}
             </div>
-            <Barcode value={order.order_no} height={32} />
+            <Barcode value={order.order_no} height={28} />
           </div>
         </div>
       </div>
 
-      {/* 商品摘要 */}
-      <div style={{ background:'#f5f5f5', borderRadius:'6px', padding:'8px 12px', fontSize:'12px', color:'#333' }}>
-        <div style={{ fontWeight:'bold', marginBottom:'3px', fontSize:'11px', color:'#666', letterSpacing:'1px' }}>商品摘要</div>
-        <div>{itemSummary || '—'}</div>
-        <div style={{ marginTop:'4px', fontWeight:'bold', textAlign:'right', fontSize:'14px' }}>
-          NT${order.total_amount.toLocaleString()}
-        </div>
+      {/* ── 商品摘要（無金額） ── */}
+      <div style={{ background:'#f5f5f5', borderRadius:'5px',
+                    padding:'6px 10px', marginBottom:'8px',
+                    fontSize:'11px', color:'#444' }}>
+        <div style={{ fontWeight:'bold', fontSize:'9px', color:'#888',
+                      letterSpacing:'1px', marginBottom:'2px' }}>商品摘要</div>
+        <div style={{ lineHeight:'1.6' }}>{itemSummary || '—'}</div>
+      </div>
+
+      {/* ── 無法投遞退回聲明 ── */}
+      <div style={{ borderTop:'1px solid #ccc', paddingTop:'6px',
+                    textAlign:'center', fontSize:'11px', color:'#555',
+                    fontWeight:'bold', letterSpacing:'1px' }}>
+        無法投遞，請退回寄件人
       </div>
 
     </div>
