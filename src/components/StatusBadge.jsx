@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { STATUS_CONFIG } from '../config/store'
 
 export function StatusBadge({ status }) {
@@ -9,8 +10,8 @@ export function StatusBadge({ status }) {
   )
 }
 
-// ── 簡單 Toast（全域單例，無需 Context） ──────────
 let _setToasts = null
+let _id = 0
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([])
@@ -31,10 +32,6 @@ export function ToastProvider({ children }) {
   )
 }
 
-// 匯入此 hook 才能用 useState
-import { useState } from 'react'
-
-let _id = 0
 export function toast(msg, type = 'info', duration = 3000) {
   if (!_setToasts) return
   const id = ++_id
