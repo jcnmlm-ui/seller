@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Link } from 'react-https://github.com/jcnmlm-ui/seller/raw/refs/heads/main/src/pages/admin/OrderDashboard.jsxrouter-dom'
+import { Link } from 'react-router-dom'
 import { useReactToPrint } from 'react-to-print'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
@@ -17,10 +17,11 @@ export default function OrderDashboard() {
   const [filter, setFilter] = useState('paid')
   const [search, setSearch] = useState('')
   const [expanded, setExpanded] = useState(null)
-  const [orderItems, setOrderItems] = useState({}) // { orderId: items[] }
+  const [orderItems, setOrderItems] = useState({})
   const [newAlert, setNewAlert] = useState(false)
   const [printTarget, setPrintTarget] = useState(null)
-  const [printType, setPrintType] = useState('a4') // 'a4' | 'a5'
+  const [printType, setPrintType] = useState('a4')
+  const [shouldPrint, setShouldPrint] = useState(false)
   const printRef = useRef(null)
   const { signOut } = useAuth()
 
@@ -35,8 +36,6 @@ export default function OrderDashboard() {
 
   useEffect(() => {
     loadOrders()
-
-    // 即時訂單訂閱
     const channel = supabase.channel('orders-realtime')
       .on('postgres_changes', {
         event: '*',
@@ -51,9 +50,17 @@ export default function OrderDashboard() {
         loadOrders()
       })
       .subscribe()
-
     return () => supabase.removeChannel(channel)
   }, [loadOrders])
+
+  // 等 printTarget 渲染進 DOM 後才觸發列印
+  useEffect(() => {
+    if (shouldPrint && printTarget && printRef.current) {
+      setShouldPrint(false)
+      if (printType === 'a4') printA4()
+      else printA5()
+    }
+  }, [shouldPrint, printTarget])
 
   async function loadItems(orderId) {
     if (orderItems[orderId]) return
@@ -82,7 +89,6 @@ export default function OrderDashboard() {
       .from('orders')
       .update(updates)
       .eq('id', order.id)
-
     if (error) {
       toast('更新失敗', 'error')
     } else {
@@ -109,10 +115,7 @@ export default function OrderDashboard() {
     setPrintType(type)
     loadItems(order.id).then(() => {
       setPrintTarget(order)
-      setTimeout(() => {
-        if (type === 'a4') printA4()
-        else printA5()
-      }, 100)
+      setShouldPrint(true)
     })
   }
 
@@ -159,7 +162,6 @@ export default function OrderDashboard() {
       )}
 
       <div className="max-w-4xl mx-auto px-4 py-5">
-
         {/* 狀態分頁 */}
         <div className="flex gap-1 bg-white rounded-xl p-1 border border-stone-200 mb-4 overflow-x-auto">
           {TABS.map(t => (
@@ -217,17 +219,16 @@ export default function OrderDashboard() {
         )}
       </div>
 
-      {/* 隱藏列印元件 */}
-      {printTarget && (
-        <div className="hidden">
-          <div ref={printRef}>
-            {printType === 'a4'
+      {/* 隱藏列印元件 — ref 必須永遠掛著，不能用條件式包住外層 */}
+      <div className="hidden">
+        <div ref={printRef}>
+          {printTarget && (
+            printType === 'a4'
               ? <ShippingSlipA4 order={printTarget} items={orderItems[printTarget.id] ?? []} />
               : <WaybillA5 order={printTarget} items={orderItems[printTarget.id] ?? []} />
-            }
-          </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -259,12 +260,14 @@ function OrderCard({ order, items, isExpanded, onToggle, onUpdateStatus, onPrint
           <p className="font-black text-stone-900">NT${order.total_amount.toLocaleString()}</p>
           <p className="text-xs text-stone-400">
             {new Date(order.created_at).toLocaleString('zh-TW', {
-              month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'
+              month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
             })}
           </p>
         </div>
-        {isExpanded ? <ChevronUp size={16} className="text-stone-400 flex-shrink-0" />
-                    : <ChevronDown size={16} className="text-stone-400 flex-shrink-0" />}
+        {isExpanded
+          ? <ChevronUp size={16} className="text-stone-400 flex-shrink-0" />
+          : <ChevronDown size={16} className="text-stone-400 flex-shrink-0" />
+        }
       </div>
 
       {/* 展開內容 */}
@@ -307,7 +310,6 @@ function OrderCard({ order, items, isExpanded, onToggle, onUpdateStatus, onPrint
 
           {/* 操作按鈕 */}
           <div className="flex flex-wrap gap-2">
-            {/* 列印按鈕 */}
             <button
               onClick={() => onPrint('a4')}
               className="flex items-center gap-1.5 bg-stone-100 text-stone-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-stone-200 transition-colors"
@@ -321,7 +323,6 @@ function OrderCard({ order, items, isExpanded, onToggle, onUpdateStatus, onPrint
               <Printer size={14} /> A5 託運單
             </button>
 
-            {/* 狀態推進 */}
             {cfg?.next && (
               <button
                 onClick={() => onUpdateStatus(cfg.next)}
