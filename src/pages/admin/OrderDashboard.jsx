@@ -98,7 +98,7 @@ export default function OrderDashboard() {
   // 列印 A5
   const printA5 = useReactToPrint({
     content: () => printRef.current,
-    pageStyle: '@page { size: A5 portrait; margin: 8mm; }',
+    pageStyle: '@page { size: A6 portrait; margin: 6mm; }',
     onAfterPrint: () => setPrintTarget(null),
   })
 
@@ -310,7 +310,7 @@ function OrderCard({ order, items, isExpanded, onToggle, onUpdateStatus, onPrint
               onClick={() => onPrint('a5')}
               className="flex items-center gap-1.5 bg-stone-100 text-stone-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-stone-200 transition-colors"
             >
-              <Printer size={14} /> A5 託運單
+              <Printer size={14} /> A6 託運單
             </button>
 
             {cfg?.next && (
