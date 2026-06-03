@@ -1,6 +1,5 @@
-// ─── A6 託運單（105×148mm）──────────────────────────────────
-// 無商品摘要，只保留 QR Code 供查詢
-// 字體尺寸與 A5 版相同，重新編排以適應 A6 版面
+// ─── 託運單（100×150mm 定長標籤貼紙）──────────────────────────
+// 原 A6（105×148mm）調整為 XP-420B 捲紙尺寸 100×150mm
 
 import { useEffect, useRef } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
@@ -15,8 +14,8 @@ export default function WaybillA5({ order, items }) {
     <div style={{
       fontFamily: 'Noto Sans TC, sans-serif',
       color: '#000',
-      width: '93mm',        // A6 內容寬（105mm - 6mm×2 邊距）
-      minHeight: '130mm',   // A6 內容高
+      width: '88mm',        // 100mm 紙寬 - 6mm×2 邊距
+      minHeight: '140mm',   // 150mm 紙高 - 5mm×2 邊距
       display: 'flex',
       flexDirection: 'column',
       gap: '3mm',
@@ -100,7 +99,7 @@ export default function WaybillA5({ order, items }) {
           </div>
         </div>
 
-        {/* 地址：橫跨全寬，與郵遞區號同大小 */}
+        {/* 地址：橫跨全寬 */}
         <div style={{
           borderTop: '1px dashed #ccc',
           paddingTop: '2mm',
@@ -111,6 +110,19 @@ export default function WaybillA5({ order, items }) {
         }}>
           {order.receiver_address}
         </div>
+
+        {/* 備註（有才顯示） */}
+        {order.note && (
+          <div style={{
+            marginTop: '2mm',
+            padding: '1.5mm 2.5mm',
+            background: '#fffde7',
+            borderRadius: '3px',
+            fontSize: '12px',
+          }}>
+            備註：{order.note}
+          </div>
+        )}
 
         {/* 無法投遞聲明：推到底部中央 */}
         <div style={{
