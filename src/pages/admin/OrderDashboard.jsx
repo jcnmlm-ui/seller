@@ -16,15 +16,21 @@ import {
 const TABS = ['paid', 'picking', 'packed', 'shipped']
 const LOCAL_PRINT_API = 'http://127.0.0.1:3001'
 const TAB_LABELS = { paid: '待揀貨', picking: '揀貨中', packed: '已包裝', shipped: '已出貨' }
-// 可多選批次操作的分頁
 const BATCH_TABS = ['paid', 'picking']
 
-// ── 追蹤號碼 Modal（出貨 & 編輯共用）────────────────────────
-function TrackingModal({ order, mode, onConfirm, onClose }) {
+// ── 追蹤號碼 Modal ────────────────────────────────────────────
+function TrackingModal({ order, mode, continuousMode, onContinuousModeChange, onConfirm, onClose }) {
   const [trackingNo, setTrackingNo] = useState(order.tracking_no ?? '')
   const inputRef = useRef(null)
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 100) }, [])
   const isEdit = mode === 'edit'
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      onConfirm(trackingNo.trim())
+    }
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -38,26 +44,67 @@ function TrackingModal({ order, mode, onConfirm, onClose }) {
           </div>
           <button onClick={onClose} className="text-stone-400 hover:text-stone-700"><X size={18} /></button>
         </div>
+
         <div className="px-5 py-4 space-y-3">
-          <p className="text-sm text-stone-500">
-            {isEdit
-              ? '更新後顧客可在訂單頁面看到最新追蹤號碼。'
-              : '輸入後顧客可直接連結到郵局查詢包裹狀態。不填也可直接出貨，之後可再補填。'}
-          </p>
+          {/* 訂單資訊（確認是哪一筆）*/}
+          <div className="bg-stone-50 rounded-xl px-3 py-2 flex items-center gap-2 text-sm flex-wrap">
+            <span className="font-mono text-stone-500 text-xs">{order.order_no}</span>
+            <span className="text-stone-300">·</span>
+            <span className="font-bold text-stone-800">{order.receiver_name}</span>
+            <span className="text-stone-300">·</span>
+            <span className="text-stone-500 truncate">{order.receiver_phone}</span>
+          </div>
+
+          {/* 追蹤號碼輸入 */}
           <div>
             <label className="label">追蹤號碼（選填）</label>
-            <input ref={inputRef} className="input font-mono tracking-widest"
+            <input
+              ref={inputRef}
+              className="input font-mono tracking-widest"
               placeholder="例：RO123456789TW"
               value={trackingNo}
-              onChange={e => setTrackingNo(e.target.value.toUpperCase())} />
+              onChange={e => setTrackingNo(e.target.value.toUpperCase())}
+              onKeyDown={handleKeyDown}
+            />
+            <p className="text-xs text-stone-400 mt-1">
+              條碼槍刷讀後按{' '}
+              <kbd className="bg-stone-100 px-1.5 py-0.5 rounded text-stone-500 font-mono text-xs">Enter</kbd>
+              {' '}自動送出
+            </p>
           </div>
+
           {isEdit && order.tracking_no && (
             <button onClick={() => setTrackingNo('')}
               className="text-xs text-red-400 hover:text-red-600">
               清除現有追蹤號碼
             </button>
           )}
+
+          {/* 連續出貨模式（僅出貨時顯示）*/}
+          {!isEdit && (
+            <label className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-all
+              ${continuousMode
+                ? 'bg-green-50 border-green-300'
+                : 'bg-stone-50 border-stone-200 hover:border-stone-300'}`}>
+              <input
+                type="checkbox"
+                checked={continuousMode}
+                onChange={e => onContinuousModeChange(e.target.checked)}
+                className="w-4 h-4 rounded accent-green-500 flex-shrink-0"
+              />
+              <div className="flex-1">
+                <p className={`text-sm font-semibold ${continuousMode ? 'text-green-700' : 'text-stone-600'}`}>
+                  連續出貨模式
+                </p>
+                <p className="text-xs text-stone-400">確認後自動跳下一筆已包裝訂單</p>
+              </div>
+              {continuousMode && (
+                <span className="text-green-500 text-xs font-bold flex-shrink-0">開啟中</span>
+              )}
+            </label>
+          )}
         </div>
+
         <div className="px-5 pb-5 flex gap-3">
           <button onClick={onClose} className="btn-secondary flex-1 text-sm">取消</button>
           <button onClick={() => onConfirm(trackingNo.trim())} className="btn-primary flex-1 text-sm">
@@ -79,10 +126,10 @@ export default function OrderDashboard() {
   const [newAlert, setNewAlert]         = useState(false)
   const [printTarget, setPrintTarget]   = useState(null)
   const [printType, setPrintType]       = useState('a4')
-  const [trackingModal, setTrackingModal] = useState(null) // { order, mode: 'ship'|'edit' }
-  // 多選狀態
-  const [selected, setSelected]         = useState(new Set()) // Set of order.id
-  const [printMode, setPrintMode]       = useState('checking') // 'local' | 'browser' | 'checking'
+  const [trackingModal, setTrackingModal] = useState(null)
+  const [continuousMode, setContinuousMode] = useState(false)
+  const [selected, setSelected]         = useState(new Set())
+  const [printMode, setPrintMode]       = useState('checking')
   const printRef  = useRef(null)
   const autoPrint = useRef({ active: false })
   const { signOut } = useAuth()
@@ -114,7 +161,6 @@ export default function OrderDashboard() {
       .catch(() => setPrintMode('browser'))
   }, [])
 
-  // 切換分頁時清空勾選
   function handleFilterChange(f) {
     setFilter(f)
     setSelected(new Set())
@@ -151,8 +197,7 @@ export default function OrderDashboard() {
   }
 
   function selectAll() {
-    const ids = displayed.map(o => o.id)
-    setSelected(new Set(ids))
+    setSelected(new Set(displayed.map(o => o.id)))
   }
 
   function clearSelection() { setSelected(new Set()) }
@@ -162,19 +207,13 @@ export default function OrderDashboard() {
     const nextStatus = filter === 'paid' ? 'picking' : 'packed'
     const ids = [...selected]
     let successCount = 0
-
-    // 批次更新全部選取的訂單
     for (const id of ids) {
       const order = orders.find(o => o.id === id)
       if (!order) continue
-      const updates = {
-        status: nextStatus,
-        ...(nextStatus === 'shipped' ? { shipped_at: new Date().toISOString() } : {}),
-      }
-      const { error } = await supabase.from('orders').update(updates).eq('id', id)
+      const { error } = await supabase.from('orders')
+        .update({ status: nextStatus }).eq('id', id)
       if (!error) successCount++
     }
-
     toast(`✓ 已批次更新 ${successCount} 筆訂單為「${STATUS_CONFIG[nextStatus]?.label}」`, 'success', 4000)
     clearSelection()
     loadOrders()
@@ -210,7 +249,6 @@ export default function OrderDashboard() {
     const baseUrl = window.location.origin + window.location.pathname
 
     if (printMode === 'local') {
-      // 本地列印伺服器：靜默送印，不跳對話框
       const template = type === 'a4' ? 'shipping_slip_a4' : 'label'
       try {
         const res = await fetch(`${LOCAL_PRINT_API}/print`, {
@@ -251,7 +289,6 @@ export default function OrderDashboard() {
         toast(`列印失敗：${err.message}`, 'error')
       }
     } else {
-      // Fallback：瀏覽器列印
       flushSync(() => { setPrintType(type); setPrintTarget(order) })
       if (type === 'a4') printA4(); else printA6()
     }
@@ -265,12 +302,10 @@ export default function OrderDashboard() {
     const target = fresh ?? order
 
     if (printMode === 'local') {
-      // 本地列印：先印 A4 再印託運單
       await handlePrint(target, 'a4')
       await new Promise(r => setTimeout(r, 500))
       await handlePrint(target, 'a6')
     } else {
-      // Fallback：瀏覽器列印 A4 → A6
       autoPrint.current.active = true
       flushSync(() => { setPrintType('a4'); setPrintTarget(target) })
       printA4()
@@ -289,10 +324,31 @@ export default function OrderDashboard() {
   async function handleTrackingConfirm(trackingNo) {
     const { order, mode } = trackingModal
     setTrackingModal(null)
+
     if (mode === 'ship') {
       await updateStatus(order, 'shipped', { tracking_no: trackingNo || null })
+
+      if (continuousMode) {
+        // 找下一筆已包裝（最早下單的優先）
+        const { data: nextOrders } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('status', 'packed')
+          .order('created_at', { ascending: true })
+          .limit(1)
+
+        if (nextOrders && nextOrders.length > 0) {
+          setTimeout(() => {
+            setTrackingModal({ order: nextOrders[0], mode: 'ship' })
+          }, 250)
+        } else {
+          toast('🎉 所有已包裝訂單已全部出貨！', 'success', 4000)
+          loadOrders()
+        }
+      } else {
+        loadOrders()
+      }
     } else {
-      // 僅更新追蹤號碼，不改狀態
       const { error } = await supabase
         .from('orders').update({ tracking_no: trackingNo || null }).eq('id', order.id)
       if (!error) { toast('追蹤號碼已更新', 'success'); loadOrders() }
@@ -310,9 +366,8 @@ export default function OrderDashboard() {
     )
 
   const counts = TABS.reduce((acc, t) => ({ ...acc, [t]: orders.filter(o => o.status === t).length }), {})
-  const isBatchTab   = BATCH_TABS.includes(filter)
-  const allSelected  = displayed.length > 0 && displayed.every(o => selected.has(o.id))
-  const someSelected = displayed.some(o => selected.has(o.id))
+  const isBatchTab  = BATCH_TABS.includes(filter)
+  const allSelected = displayed.length > 0 && displayed.every(o => selected.has(o.id))
   const bulkNextLabel = filter === 'paid' ? '批次開始揀貨' : '批次完成包裝'
 
   return (
@@ -324,7 +379,6 @@ export default function OrderDashboard() {
           <span className="text-stone-400 text-sm">出貨管理後台</span>
         </div>
         <div className="flex items-center gap-3">
-          {/* 列印模式指示器 */}
           <span className={`text-xs px-2 py-1 rounded-full font-mono hidden sm:inline
             ${printMode === 'local' ? 'bg-green-800 text-green-300' : printMode === 'browser' ? 'bg-stone-700 text-stone-400' : 'text-stone-600'}`}>
             {printMode === 'local' ? '直接列印' : printMode === 'browser' ? '瀏覽器列印' : '偵測中...'}
@@ -370,7 +424,6 @@ export default function OrderDashboard() {
             <input className="input pl-9 text-sm" placeholder="搜尋訂單號、姓名、電話…"
               value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          {/* 全選按鈕（只在可批次操作的分頁顯示）*/}
           {isBatchTab && displayed.length > 0 && (
             <button
               onClick={allSelected ? clearSelection : selectAll}
@@ -414,7 +467,7 @@ export default function OrderDashboard() {
         )}
       </div>
 
-      {/* ── 批次操作浮動列（有勾選時出現）─────────────────── */}
+      {/* 批次操作浮動列 */}
       {selected.size > 0 && (
         <div className="fixed bottom-4 left-4 right-4 z-30">
           <div className="max-w-4xl mx-auto">
@@ -456,6 +509,8 @@ export default function OrderDashboard() {
         <TrackingModal
           order={trackingModal.order}
           mode={trackingModal.mode}
+          continuousMode={continuousMode}
+          onContinuousModeChange={setContinuousMode}
           onConfirm={handleTrackingConfirm}
           onClose={() => setTrackingModal(null)}
         />
@@ -470,16 +525,13 @@ function OrderCard({
   onToggleSelect, onToggle, onStartPicking, onUpdateStatus,
   onConfirmShip, onEditTracking, onPrint,
 }) {
-  const cfg = STATUS_CONFIG[order.status]
   const PAYMENT_LABELS = { cash: '💵 現金', card: '💳 刷卡', taiwan_pay: '📱 台灣PAY' }
 
   return (
     <div className={`bg-white rounded-xl border overflow-hidden transition-colors
       ${isSelected ? 'border-red-400 ring-1 ring-red-300' : 'border-stone-200'}`}>
 
-      {/* 訂單頭 */}
       <div className="flex items-center gap-2 px-3 py-3">
-        {/* 勾選框（僅在可批次操作的分頁）*/}
         {showCheckbox && (
           <button onClick={onToggleSelect}
             className={`flex-shrink-0 w-6 h-6 rounded flex items-center justify-center transition-colors
@@ -488,7 +540,6 @@ function OrderCard({
           </button>
         )}
 
-        {/* 主要資訊（可點擊展開）*/}
         <div className="flex-1 flex items-center gap-3 cursor-pointer hover:bg-stone-50 rounded-lg px-2 py-1 -mx-2 transition-colors"
              onClick={onToggle}>
           <div className="flex-1 min-w-0">
@@ -518,17 +569,14 @@ function OrderCard({
         </div>
       </div>
 
-      {/* 展開內容 */}
       {isExpanded && (
         <div className="border-t border-stone-100 px-4 py-4 space-y-4">
-          {/* 地址 + 追蹤號碼（已出貨）*/}
           <div className="text-sm space-y-1">
             <div>
               <span className="text-stone-400">收件地址：</span>
               <span className="text-stone-700">{order.receiver_address}</span>
               {order.note && <span className="text-stone-400 ml-2">（備註：{order.note}）</span>}
             </div>
-            {/* 追蹤號碼列（已出貨才顯示）*/}
             {(order.status === 'shipped' || order.status === 'delivered') && (
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-stone-400">追蹤號碼：</span>
@@ -548,7 +596,6 @@ function OrderCard({
             )}
           </div>
 
-          {/* 商品明細 */}
           {items ? (
             <div className="bg-stone-50 rounded-lg divide-y divide-stone-100">
               {items.map(item => (
@@ -576,7 +623,6 @@ function OrderCard({
             </div>
           )}
 
-          {/* 操作按鈕 */}
           <div className="flex flex-wrap gap-2 items-center">
             <button onClick={() => onPrint('a4')}
               className="flex items-center gap-1.5 bg-stone-100 text-stone-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-stone-200 transition-colors">
