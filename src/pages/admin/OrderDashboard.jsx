@@ -228,6 +228,7 @@ export default function OrderDashboard() {
               receiver_phone:       order.receiver_phone,
               receiver_postal_code: order.receiver_postal_code,
               receiver_address:     order.receiver_address,
+              receiver_landline:    order.receiver_landline || '',
               note:                 order.note,
               total_amount:         order.total_amount,
               order_url:            `${baseUrl}#/order/${order.order_no}`,
