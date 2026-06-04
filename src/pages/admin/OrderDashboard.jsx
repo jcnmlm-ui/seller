@@ -134,28 +134,6 @@ export default function OrderDashboard() {
   const autoPrint = useRef({ active: false })
   const { signOut } = useAuth()
 
-  // ── 音效 + 系統通知 ─────────────────────────────────────
-  function playAlert() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)()
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.connect(gain); gain.connect(ctx.destination)
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(880, ctx.currentTime)
-      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.12)
-      gain.gain.setValueAtTime(0.4, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6)
-      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.6)
-    } catch {}
-  }
-
-  function sendNotification(title, body, tag) {
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification(title, { body, icon: '/seller/favicon.ico', tag })
-    }
-  }
-
   const loadOrders = useCallback(async () => {
     const { data } = await supabase
       .from('orders').select('*')
@@ -164,37 +142,37 @@ export default function OrderDashboard() {
   }, [])
 
   useEffect(() => {
-    // 申請瀏覽器通知權限
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission()
-    }
     loadOrders()
     const channel = supabase.channel('orders-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
         if (payload.eventType === 'INSERT') {
           setNewAlert(true); setTimeout(() => setNewAlert(false), 5000)
           toast('🔔 新訂單到了！', 'success', 5000)
-          playAlert()
-          sendNotification('🔔 新訂單', '有新的預購訂單進來了！', 'new-order')
         }
-
-        // 攤位確認收款（pending → paid）
-        if (payload.eventType === 'UPDATE' && payload.new?.status === 'paid') {
-          const name   = payload.new.receiver_name ?? ''
-          const amount = payload.new.total_amount ?? 0
-          const method = { cash:'現金', card:'刷卡', taiwan_pay:'台灣PAY' }[payload.new.payment_method] ?? ''
-          toast(`💰 ${name} 已付款 NT$${Number(amount).toLocaleString()}（${method}）`, 'success', 6000)
-          sendNotification(
-            '💰 新收款',
-            `${name}  NT$${Number(amount).toLocaleString()}（${method}）`,
-            payload.new.order_no
-          )
-          playAlert()
-        }
-
         loadOrders()
       }).subscribe()
     return () => supabase.removeChannel(channel)
+  }, [loadOrders])
+
+
+  // ── Broadcast：接收攤位收款通知（所有開著後台的人都收到）──
+  useEffect(() => {
+    const payChannel = supabase.channel('payment-events')
+      .on('broadcast', { event: 'payment_confirmed' }, ({ payload }) => {
+        const name   = payload.receiver_name ?? ''
+        const amount = payload.total_amount ?? 0
+        const method = { cash:'現金', card:'刷卡', taiwan_pay:'台灣PAY' }[payload.payment_method] ?? ''
+        toast(`💰 ${name} 已付款 NT$${Number(amount).toLocaleString()}（${method}）`, 'success', 6000)
+        sendNotification(
+          '💰 新收款',
+          `${name}  NT$${Number(amount).toLocaleString()}（${method}）`,
+          payload.order_no
+        )
+        playAlert()
+        loadOrders()
+      })
+      .subscribe()
+    return () => supabase.removeChannel(payChannel)
   }, [loadOrders])
 
   // 偵測本地列印伺服器
@@ -542,7 +520,7 @@ export default function OrderDashboard() {
               <div>
                 <p className="font-bold">已勾選 {selected.size} 筆訂單</p>
                 <p className="text-xs text-stone-400 mt-0.5">
-                  {filter === 'paid' ? '批次更新為「揀貨中」' : filter === 'picking' ? '批次更新為「已包裝」' : '批次標記為「已送達」'}
+                  {filter === 'paid' ? '批次更新為「揀貨中」' : '批次更新為「已包裝」'}
                 </p>
               </div>
               <div className="flex items-center gap-2">
