@@ -66,12 +66,38 @@ export default function BoothDashboard() {
     const { error } = await supabase.from('orders').update({
       status: 'paid', payment_method: payMethod, paid_at: new Date().toISOString(),
     }).eq('id', order.id)
-    if (error) { toast('更新失敗：' + error.message, 'error') }
-    else {
+
+    if (error) {
+      toast('更新失敗：' + error.message, 'error')
+    } else {
       toast(`✓ 已確認收款（${PAYMENT_LABELS[payMethod]}）`, 'success')
       setOrder(prev => ({ ...prev, status: 'paid', payment_method: payMethod }))
       loadTodayStats()
-      setTimeout(() => { setQuery(''); setOrder(null); setItems([]); inputRef.current?.focus() }, 1800)
+
+      // ── 廣播給所有開著後台的人 ──────────────────────────
+      try {
+        const ch = supabase.channel('payment-events')
+        ch.subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await ch.send({
+              type: 'broadcast',
+              event: 'payment_confirmed',
+              payload: {
+                order_no:       order.order_no,
+                receiver_name:  order.receiver_name,
+                total_amount:   order.total_amount,
+                payment_method: payMethod,
+              },
+            })
+            supabase.removeChannel(ch)
+          }
+        })
+      } catch {}
+      // ────────────────────────────────────────────────────
+
+      setTimeout(() => {
+        setQuery(''); setOrder(null); setItems([]); inputRef.current?.focus()
+      }, 1800)
     }
     setConfirming(false)
   }
@@ -107,12 +133,10 @@ export default function BoothDashboard() {
           <p className="text-xs text-stone-400">攤位收款介面</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* 出貨管理後台 */}
           <Link to="/admin"
             className="flex items-center gap-1.5 text-stone-300 hover:text-white text-xs border border-stone-700 hover:border-stone-500 rounded-lg px-3 py-2 transition-colors">
             <Monitor size={13} /> 出貨管理後台
           </Link>
-          {/* 今日統計 */}
           <div className="text-right text-xs text-stone-400 border-l border-stone-700 pl-3 ml-1">
             <p>今日 {todayStats.count} 筆</p>
             <p className="text-white font-bold text-sm">NT${todayStats.total.toLocaleString()}</p>
@@ -128,18 +152,11 @@ export default function BoothDashboard() {
 
         {/* ══ 左欄：搜尋 + 商品清單 ══════════════════════════ */}
         <div className="flex flex-col bg-white border-r border-stone-200" style={{ width:'45%' }}>
-
-          {/* 搜尋列 */}
           <div className="flex-shrink-0 px-5 pt-4 pb-3 border-b border-stone-100 bg-stone-50">
             <form onSubmit={handleSearch} className="flex gap-2">
-              <input
-                ref={inputRef}
-                className="input flex-1 font-mono text-sm"
-                placeholder="ORD-20240602-0001"
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                autoComplete="off"
-              />
+              <input ref={inputRef} className="input flex-1 font-mono text-sm"
+                placeholder="ORD-20240602-0001" value={query}
+                onChange={e => setQuery(e.target.value)} autoComplete="off" />
               {(query || order) && (
                 <button type="button" onClick={handleClear}
                   className="px-3 rounded-xl bg-stone-200 text-stone-500 hover:bg-stone-300 transition-colors">
@@ -159,26 +176,21 @@ export default function BoothDashboard() {
           {/* 商品清單（可捲動）*/}
           <div className="flex-1 overflow-y-auto px-5 py-4">
             {!order ? (
-              // 空狀態
               <div className="flex flex-col items-center justify-center h-full text-stone-300 gap-3">
                 <Search size={40} strokeWidth={1} />
                 <p className="text-sm">掃描或輸入訂單號碼</p>
               </div>
             ) : (
               <>
-                {/* 狀態標籤 */}
                 <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold mb-4
                   ${order.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${order.status === 'pending' ? 'bg-amber-500' : 'bg-green-500'}`} />
                   {order.status === 'pending' ? '待收款' : '已結帳'}
                   <span className="font-mono text-xs opacity-70 ml-1">{order.order_no}</span>
                 </div>
-
-                {/* 商品條目 */}
                 <div className="space-y-2">
                   {items.map(item => (
-                    <div key={item.id}
-                      className="flex items-center justify-between py-2.5 px-3 bg-stone-50 rounded-xl">
+                    <div key={item.id} className="flex items-center justify-between py-2.5 px-3 bg-stone-50 rounded-xl">
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-stone-900 text-sm truncate">{item.product_name}</p>
                         {item.product_barcode && (
@@ -198,7 +210,7 @@ export default function BoothDashboard() {
             )}
           </div>
 
-          {/* 合計（固定在左欄底部）*/}
+          {/* 合計 */}
           {order && (
             <div className="flex-shrink-0 border-t border-stone-200 bg-white px-5 py-4 flex justify-between items-center">
               <span className="text-stone-500 font-medium">合計應收</span>
@@ -212,14 +224,12 @@ export default function BoothDashboard() {
         {/* ══ 右欄：顧客資訊 + 付款 ══════════════════════════ */}
         <div className="flex flex-col overflow-y-auto bg-stone-50" style={{ width:'55%' }}>
           {!order ? (
-            // 右側空狀態
             <div className="flex flex-col items-center justify-center h-full text-stone-300 gap-4">
               <div className="text-6xl">🧾</div>
               <p className="text-sm font-medium">掃描訂單後顯示顧客資訊</p>
             </div>
           ) : (
             <div className="flex flex-col h-full">
-              {/* 顧客資訊 */}
               <div className="flex-shrink-0 px-8 pt-6 pb-4 border-b border-stone-200 bg-white">
                 <p className="text-xs font-semibold text-stone-400 tracking-widest mb-2">收件人</p>
                 <p className="font-black text-3xl text-stone-900 mb-1">{order.receiver_name}</p>
@@ -232,11 +242,8 @@ export default function BoothDashboard() {
                 )}
               </div>
 
-              {/* 付款區 */}
               <div className="flex-1 flex flex-col justify-between px-8 py-6">
-
                 {order.status === 'pending' ? (
-                  /* ── 待收款 ── */
                   <div className="flex flex-col h-full gap-5">
                     <div>
                       <p className="text-xs font-semibold text-stone-400 tracking-widest mb-3">付款方式</p>
@@ -272,7 +279,6 @@ export default function BoothDashboard() {
                     </button>
                   </div>
                 ) : (
-                  /* ── 已收款 ── */
                   <div className="space-y-4">
                     {!editingPayment ? (
                       <div className="bg-green-50 border border-green-200 rounded-2xl p-4">
@@ -315,8 +321,6 @@ export default function BoothDashboard() {
                         </button>
                       </div>
                     )}
-
-                    {/* 修改紀錄 */}
                     {(order.payment_log ?? []).length > 0 && (
                       <div className="pt-3 border-t border-stone-200 space-y-1.5">
                         <p className="text-xs font-semibold text-stone-400 tracking-widest">修改紀錄</p>
