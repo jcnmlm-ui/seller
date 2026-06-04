@@ -11,11 +11,6 @@
 }
 
 /* ── 列印共用樣式 ─────────────────────────────── */
-/* 紙張尺寸：獨立放在外面，不能巢狀在 @media 裡 */
-@page {
-  size: 100mm 150mm;
-  margin: 5mm;
-}
 
 @media print {
   body { background: white !important; }
