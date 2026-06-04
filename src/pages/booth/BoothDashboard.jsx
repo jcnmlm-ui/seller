@@ -1,23 +1,25 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, LogOut, ChevronRight } from 'lucide-react'
+import { Search, LogOut, ChevronRight, Edit2, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import { PAYMENT_LABELS, STORE } from '../../config/store'
 import { toast } from '../../components/StatusBadge'
 
 export default function BoothDashboard() {
-  const [query, setQuery] = useState('')
-  const [order, setOrder] = useState(null)
-  const [items, setItems] = useState([])
-  const [loading, setLoading] = useState(false)
+  const [query, setQuery]           = useState('')
+  const [order, setOrder]           = useState(null)
+  const [items, setItems]           = useState([])
+  const [loading, setLoading]       = useState(false)
   const [confirming, setConfirming] = useState(false)
-  const [payMethod, setPayMethod] = useState('cash')
+  const [payMethod, setPayMethod]   = useState('cash')
   const [todayStats, setTodayStats] = useState({ count: 0, total: 0 })
+  // 修改付款方式（已收款後）
+  const [editingPayment, setEditingPayment] = useState(false)
+  const [editPayMethod, setEditPayMethod]   = useState('cash')
   const inputRef = useRef(null)
   const { signOut } = useAuth()
 
-  // 自動聚焦搜尋框（方便 QR 掃描槍輸入）
   useEffect(() => {
     inputRef.current?.focus()
     loadTodayStats()
@@ -38,13 +40,22 @@ export default function BoothDashboard() {
     }
   }
 
+  // ── 搜尋 / 確認收款（Enter 兩用）────────────────────────
   async function handleSearch(e) {
     e.preventDefault()
+
+    // 若已有待收款訂單 → Enter = 確認收款
+    if (order?.status === 'pending' && !confirming) {
+      await confirmPayment()
+      return
+    }
+
     const q = query.trim().toUpperCase()
     if (!q) return
     setLoading(true)
     setOrder(null)
     setItems([])
+    setEditingPayment(false)
 
     const { data: ord } = await supabase
       .from('orders')
@@ -54,6 +65,7 @@ export default function BoothDashboard() {
 
     if (ord) {
       setOrder(ord)
+      setPayMethod('cash')  // 每次查到訂單重設為現金
       const { data: its } = await supabase
         .from('order_items')
         .select('*')
@@ -65,6 +77,7 @@ export default function BoothDashboard() {
     setLoading(false)
   }
 
+  // ── 確認收款 ─────────────────────────────────────────────
   async function confirmPayment() {
     if (!order) return
     if (order.status !== 'pending') {
@@ -75,9 +88,9 @@ export default function BoothDashboard() {
     const { error } = await supabase
       .from('orders')
       .update({
-        status: 'paid',
+        status:         'paid',
         payment_method: payMethod,
-        paid_at: new Date().toISOString(),
+        paid_at:        new Date().toISOString(),
       })
       .eq('id', order.id)
 
@@ -87,7 +100,6 @@ export default function BoothDashboard() {
       toast(`✓ 已確認收款（${PAYMENT_LABELS[payMethod]}）`, 'success')
       setOrder(prev => ({ ...prev, status: 'paid', payment_method: payMethod }))
       loadTodayStats()
-      // 清空搜尋，準備下一筆
       setTimeout(() => {
         setQuery('')
         setOrder(null)
@@ -97,6 +109,44 @@ export default function BoothDashboard() {
     }
     setConfirming(false)
   }
+
+  // ── 修改付款方式（已收款後）──────────────────────────────
+  function startEditPayment() {
+    setEditPayMethod(order.payment_method)
+    setEditingPayment(true)
+  }
+
+  async function saveEditPayment() {
+    if (editPayMethod === order.payment_method) {
+      setEditingPayment(false)
+      return
+    }
+    const logEntry = {
+      at:   new Date().toISOString(),
+      from: order.payment_method,
+      to:   editPayMethod,
+    }
+    const newLog = [...(order.payment_log ?? []), logEntry]
+    const { error } = await supabase
+      .from('orders')
+      .update({ payment_method: editPayMethod, payment_log: newLog })
+      .eq('id', order.id)
+
+    if (error) {
+      toast('修改失敗：' + error.message, 'error')
+    } else {
+      toast(`✓ 付款方式已改為 ${PAYMENT_LABELS[editPayMethod]}`, 'success')
+      setOrder(prev => ({ ...prev, payment_method: editPayMethod, payment_log: newLog }))
+      setEditingPayment(false)
+    }
+  }
+
+  // ── 搜尋框提示文字 ────────────────────────────────────────
+  const inputHint = order?.status === 'pending'
+    ? '💡 確認付款方式後按 ↵ Enter 或條碼槍確認收款'
+    : order
+    ? '💡 輸入下一筆訂單號或掃描 QR Code'
+    : '💡 掃描顧客手機上的 QR Code 後，條碼槍會自動填入訂單號'
 
   return (
     <div className="min-h-screen bg-stone-50">
@@ -138,9 +188,7 @@ export default function BoothDashboard() {
               }
             </button>
           </div>
-          <p className="text-xs text-stone-400 mt-1.5">
-            💡 掃描顧客手機上的 QR Code 後，條碼槍會自動填入訂單號
-          </p>
+          <p className="text-xs text-stone-400 mt-1.5">{inputHint}</p>
         </form>
 
         {/* 訂單卡片 */}
@@ -149,9 +197,7 @@ export default function BoothDashboard() {
             {/* 狀態 Banner */}
             <div className={`px-4 py-3 flex items-center justify-between text-sm font-bold
               ${order.status === 'pending' ? 'bg-amber-400 text-amber-900' : 'bg-green-400 text-green-900'}`}>
-              <span>
-                {order.status === 'pending' ? '⏳ 待收款' : '✅ 已結帳'}
-              </span>
+              <span>{order.status === 'pending' ? '⏳ 待收款' : '✅ 已結帳'}</span>
               <span className="font-mono text-xs">{order.order_no}</span>
             </div>
 
@@ -193,23 +239,15 @@ export default function BoothDashboard() {
                 </div>
               </div>
 
-              {/* 已付款顯示 */}
-              {order.status !== 'pending' ? (
-                <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-800">
-                  ✅ 已收款（{PAYMENT_LABELS[order.payment_method]}）
-                  <br />
-                  <span className="text-xs text-green-600">
-                    {order.paid_at && new Date(order.paid_at).toLocaleString('zh-TW')}
-                  </span>
-                </div>
-              ) : (
-                /* 收款確認 */
+              {/* ── 待收款：付款方式選擇 + 確認 ── */}
+              {order.status === 'pending' ? (
                 <div>
                   <p className="label">付款方式</p>
                   <div className="flex gap-2 mb-4">
                     {Object.entries(PAYMENT_LABELS).map(([k, v]) => (
                       <button
                         key={k}
+                        type="button"
                         onClick={() => setPayMethod(k)}
                         className={`flex-1 py-3 rounded-xl text-sm font-bold border-2 transition-all
                           ${payMethod === k
@@ -226,14 +264,98 @@ export default function BoothDashboard() {
                     disabled={confirming}
                     className="btn-primary w-full py-4 text-base"
                   >
-                    {confirming
-                      ? <span className="flex items-center justify-center gap-2">
-                          <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          確認中…
-                        </span>
-                      : `確認收款 NT${order.total_amount.toLocaleString()}`
-                    }
+                    {confirming ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        確認中…
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center gap-2">
+                        確認收款 NT${order.total_amount.toLocaleString()}
+                        <kbd className="bg-white/20 text-white/90 text-xs px-1.5 py-0.5 rounded font-mono">
+                          ↵ Enter
+                        </kbd>
+                      </span>
+                    )}
                   </button>
+                </div>
+              ) : (
+                /* ── 已收款：顯示 + 可修改付款方式 ── */
+                <div>
+                  {!editingPayment ? (
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-800">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-bold">✅ 已收款（{PAYMENT_LABELS[order.payment_method]}）</p>
+                          <p className="text-xs text-green-600 mt-0.5">
+                            {order.paid_at && new Date(order.paid_at).toLocaleString('zh-TW')}
+                          </p>
+                        </div>
+                        <button
+                          onClick={startEditPayment}
+                          className="flex items-center gap-1 text-xs text-green-700 hover:text-green-900 border border-green-300 px-2 py-1 rounded-lg transition-colors"
+                        >
+                          <Edit2 size={11} /> 修改
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* 修改付款方式 UI */
+                    <div className="border border-amber-300 bg-amber-50 rounded-xl p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-amber-800">修改付款方式</p>
+                        <button onClick={() => setEditingPayment(false)}
+                          className="text-amber-600 hover:text-amber-900">
+                          <X size={16} />
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        {Object.entries(PAYMENT_LABELS).map(([k, v]) => (
+                          <button
+                            key={k}
+                            type="button"
+                            onClick={() => setEditPayMethod(k)}
+                            className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-all
+                              ${editPayMethod === k
+                                ? 'bg-stone-900 border-stone-900 text-white'
+                                : 'bg-white border-stone-200 text-stone-600 hover:border-stone-400'
+                              }`}
+                          >
+                            {v}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={saveEditPayment}
+                        className="btn-primary w-full py-2.5 text-sm"
+                      >
+                        儲存修改
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 修改紀錄時間戳記 */}
+                  {(order.payment_log ?? []).length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-stone-100 space-y-1.5">
+                      <p className="text-xs font-semibold text-stone-400 tracking-widest">修改紀錄</p>
+                      {(order.payment_log).map((log, i) => (
+                        <div key={i} className="text-xs text-stone-400 flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-stone-300">
+                            {new Date(log.at).toLocaleString('zh-TW', {
+                              month:'2-digit', day:'2-digit',
+                              hour:'2-digit', minute:'2-digit',
+                            })}
+                          </span>
+                          <span>
+                            付款方式由
+                            <strong className="text-stone-500 mx-1">{PAYMENT_LABELS[log.from]}</strong>
+                            改為
+                            <strong className="text-stone-500 ml-1">{PAYMENT_LABELS[log.to]}</strong>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
