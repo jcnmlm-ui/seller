@@ -16,7 +16,7 @@ import {
 const TABS = ['paid', 'picking', 'packed', 'shipped']
 const LOCAL_PRINT_API = 'http://127.0.0.1:3001'
 const TAB_LABELS = { paid: '待揀貨', picking: '揀貨中', packed: '已包裝', shipped: '已出貨' }
-const BATCH_TABS = ['paid', 'picking']
+const BATCH_TABS = ['paid', 'picking', 'shipped']
 
 // ── 追蹤號碼 Modal ────────────────────────────────────────────
 function TrackingModal({ order, mode, continuousMode, onContinuousModeChange, onConfirm, onClose }) {
@@ -204,7 +204,7 @@ export default function OrderDashboard() {
 
   // ── 批次更新 ─────────────────────────────────────────────
   async function handleBulkUpdate() {
-    const nextStatus = filter === 'paid' ? 'picking' : 'packed'
+    const nextStatus = filter === 'paid' ? 'picking' : filter === 'picking' ? 'packed' : 'delivered'
     const ids = [...selected]
     let successCount = 0
     for (const id of ids) {
@@ -368,7 +368,7 @@ export default function OrderDashboard() {
   const counts = TABS.reduce((acc, t) => ({ ...acc, [t]: orders.filter(o => o.status === t).length }), {})
   const isBatchTab  = BATCH_TABS.includes(filter)
   const allSelected = displayed.length > 0 && displayed.every(o => selected.has(o.id))
-  const bulkNextLabel = filter === 'paid' ? '批次開始揀貨' : '批次完成包裝'
+  const bulkNextLabel = filter === 'paid' ? '批次開始揀貨' : filter === 'picking' ? '批次完成包裝' : '批次標記送達'
 
   return (
     <div className="min-h-screen bg-stone-100">
