@@ -187,7 +187,7 @@ export default function OrderDashboard() {
 
   const printA6 = useReactToPrint({
     content: () => printRef.current,
-    pageStyle: '@page { size: A6 portrait; margin: 6mm; }',
+    pageStyle: '@page { size: 100mm 150mm; margin: 5mm; }',
     onAfterPrint: () => {
       autoPrint.current.active = false
       setPrintTarget(null)
