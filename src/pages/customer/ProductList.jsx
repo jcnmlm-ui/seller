@@ -244,12 +244,26 @@ export default function ProductList() {
         </div>
       </div>
 
-      {/* ── 固定底部 Footer ── */}
-      <footer className="flex-shrink-0 bg-white border-t border-stone-100 py-2.5 z-10">
-        <p className="text-center text-xs text-stone-400">
-          © Design by Chiahsien
-        </p>
-      </footer>
+    {/* ── 固定底部 Footer ── */}
+    <footer className="flex-shrink-0 bg-white border-t border-stone-100 py-2.5 z-10">
+      <div className="flex items-center justify-center gap-3 text-xs text-stone-400">
+        <span>© Design by Chiahsien</span>
+        <span className="text-stone-200">|</span>
+        <button
+          onClick={() => setShowPrivacy(true)}
+          className="underline underline-offset-2 hover:text-stone-600 transition-colors"
+        >
+          個資聲明
+        </button>
+        <span className="text-stone-200">|</span>
+        <Link
+          to="/query"
+          className="underline underline-offset-2 hover:text-stone-600 transition-colors"
+        >
+          查詢訂單
+        </Link>
+      </div>
+    </footer>
 
       {/* 個資聲明 Modal */}
       {showPrivacy && <PrivacyModal onAccept={acceptPrivacy} />}
