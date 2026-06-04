@@ -573,6 +573,11 @@ function OrderCard({
               {order.payment_method && (
                 <span className="text-xs text-stone-400">{PAYMENT_LABELS[order.payment_method]}</span>
               )}
+              {order.tracking_no && (
+              <span className="text-xs font-mono text-blue-500 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                📦 {order.tracking_no}
+              </span>
+              )}
             </div>
             <p className="text-sm text-stone-500 mt-0.5">
               {order.receiver_name} · {order.receiver_phone}
