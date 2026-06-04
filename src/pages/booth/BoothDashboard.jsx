@@ -40,6 +40,14 @@ export default function BoothDashboard() {
     }
   }
 
+  function handleClear() {
+  setQuery('')
+  setOrder(null)
+  setItems([])
+  setEditingPayment(false)
+  inputRef.current?.focus()
+  }
+  
   // ── 搜尋 / 確認收款（Enter 兩用）────────────────────────
   async function handleSearch(e) {
     e.preventDefault()
@@ -181,6 +189,17 @@ export default function BoothDashboard() {
               onChange={e => setQuery(e.target.value)}
               autoComplete="off"
             />
+            {/* 清除按鈕：有內容時才顯示 */}
+            {(query || order) && (
+              <button
+                type="button"
+                onClick={handleClear}
+                className="px-3 rounded-xl bg-stone-200 text-stone-500 hover:bg-stone-300 hover:text-stone-700 transition-colors"
+                title="清除"
+              >
+                <X size={18} />
+              </button>
+            )}
             <button type="submit" disabled={loading} className="btn-primary px-4">
               {loading
                 ? <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin block" />
