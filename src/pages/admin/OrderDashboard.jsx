@@ -378,18 +378,42 @@ export default function OrderDashboard() {
           <h1 className="font-black text-lg">{STORE.name}</h1>
           <span className="text-stone-400 text-sm">出貨管理後台</span>
         </div>
-        <div className="flex items-center gap-3">
-          <span className={`text-xs px-2 py-1 rounded-full font-mono hidden sm:inline
+        <div className="flex items-center gap-1">
+          {/* 列印模式指示器 */}
+          <span className={`text-xs px-2 py-1 rounded-full font-mono hidden sm:inline mr-2
             ${printMode === 'local' ? 'bg-green-800 text-green-300' : printMode === 'browser' ? 'bg-stone-700 text-stone-400' : 'text-stone-600'}`}>
             {printMode === 'local' ? '直接列印' : printMode === 'browser' ? '瀏覽器列印' : '偵測中...'}
           </span>
-          <button onClick={loadOrders} className="text-stone-400 hover:text-white p-2" title="重新整理">
-            <RefreshCw size={16} />
+        
+          <button onClick={loadOrders}
+            className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
+            <RefreshCw size={15} />
+            <span className="text-[10px]">重新整理</span>
           </button>
-          <Link to="/admin/products" className="text-stone-400 hover:text-white"><Package size={18} /></Link>
-          <Link to="/booth" className="text-stone-400 hover:text-white text-sm">攤位</Link>
-          <Link to="/admin/reports" className="text-stone-400 hover:text-white text-sm">📊</Link>
-          <button onClick={signOut} className="text-stone-400 hover:text-white p-2"><LogOut size={18} /></button>
+        
+          <Link to="/admin/products"
+            className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
+            <Package size={15} />
+            <span className="text-[10px]">商品管理</span>
+          </Link>
+        
+          <Link to="/booth"
+            className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
+            <span className="text-sm leading-none">🏪</span>
+            <span className="text-[10px]">攤位收款</span>
+          </Link>
+        
+          <Link to="/admin/reports"
+            className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
+            <span className="text-sm leading-none">📊</span>
+            <span className="text-[10px]">銷售報表</span>
+          </Link>
+        
+          <button onClick={signOut}
+            className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
+            <LogOut size={15} />
+            <span className="text-[10px]">登出</span>
+          </button>
         </div>
       </header>
 
