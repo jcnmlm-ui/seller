@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 
 const TABS = ['paid', 'picking', 'packed', 'shipped']
+const LOCAL_PRINT_API = 'http://127.0.0.1:3001'
 const TAB_LABELS = { paid: '待揀貨', picking: '揀貨中', packed: '已包裝', shipped: '已出貨' }
 // 可多選批次操作的分頁
 const BATCH_TABS = ['paid', 'picking']
@@ -81,6 +82,7 @@ export default function OrderDashboard() {
   const [trackingModal, setTrackingModal] = useState(null) // { order, mode: 'ship'|'edit' }
   // 多選狀態
   const [selected, setSelected]         = useState(new Set()) // Set of order.id
+  const [printMode, setPrintMode]       = useState('checking') // 'local' | 'browser' | 'checking'
   const printRef  = useRef(null)
   const autoPrint = useRef({ active: false })
   const { signOut } = useAuth()
@@ -104,6 +106,13 @@ export default function OrderDashboard() {
       }).subscribe()
     return () => supabase.removeChannel(channel)
   }, [loadOrders])
+
+  // 偵測本地列印伺服器
+  useEffect(() => {
+    fetch(`${LOCAL_PRINT_API}/health`, { signal: AbortSignal.timeout(2000) })
+      .then(r => r.ok ? setPrintMode('local') : setPrintMode('browser'))
+      .catch(() => setPrintMode('browser'))
+  }, [])
 
   // 切換分頁時清空勾選
   function handleFilterChange(f) {
@@ -194,12 +203,57 @@ export default function OrderDashboard() {
     },
   })
 
-  function handlePrint(order, type) {
+  async function handlePrint(order, type) {
     autoPrint.current.active = false
-    loadItems(order.id).then(() => {
+    await loadItems(order.id)
+    const items = orderItems[order.id] ?? []
+    const baseUrl = window.location.origin + window.location.pathname
+
+    if (printMode === 'local') {
+      // 本地列印伺服器：靜默送印，不跳對話框
+      const template = type === 'a4' ? 'shipping_slip_a4' : 'label'
+      try {
+        const res = await fetch(`${LOCAL_PRINT_API}/print`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            template,
+            data: {
+              order_no:             order.order_no,
+              status:               order.status,
+              payment_method:       order.payment_method,
+              created_at:           order.created_at,
+              paid_at:              order.paid_at,
+              receiver_name:        order.receiver_name,
+              receiver_phone:       order.receiver_phone,
+              receiver_postal_code: order.receiver_postal_code,
+              receiver_address:     order.receiver_address,
+              note:                 order.note,
+              total_amount:         order.total_amount,
+              order_url:            `${baseUrl}#/order/${order.order_no}`,
+              items: items.map(i => ({
+                product_name:    i.product_name,
+                product_barcode: i.product_barcode,
+                quantity:        i.quantity,
+                unit_price:      i.unit_price,
+              })),
+            },
+          }),
+        })
+        const result = await res.json()
+        if (result.success) {
+          toast(`✓ 已送印（${type === 'a4' ? 'A4 出貨單' : '託運單標籤'}）`, 'success')
+        } else {
+          throw new Error(result.error)
+        }
+      } catch (err) {
+        toast(`列印失敗：${err.message}`, 'error')
+      }
+    } else {
+      // Fallback：瀏覽器列印
       flushSync(() => { setPrintType(type); setPrintTarget(order) })
       if (type === 'a4') printA4(); else printA6()
-    })
+    }
   }
 
   // ── 開始揀貨（自動列印 A4 → A6）────────────────────────
@@ -207,9 +261,19 @@ export default function OrderDashboard() {
     await updateStatus(order, 'picking')
     await loadItems(order.id)
     const { data: fresh } = await supabase.from('orders').select('*').eq('id', order.id).single()
-    autoPrint.current.active = true
-    flushSync(() => { setPrintType('a4'); setPrintTarget(fresh ?? order) })
-    printA4()
+    const target = fresh ?? order
+
+    if (printMode === 'local') {
+      // 本地列印：先印 A4 再印託運單
+      await handlePrint(target, 'a4')
+      await new Promise(r => setTimeout(r, 500))
+      await handlePrint(target, 'a6')
+    } else {
+      // Fallback：瀏覽器列印 A4 → A6
+      autoPrint.current.active = true
+      flushSync(() => { setPrintType('a4'); setPrintTarget(target) })
+      printA4()
+    }
   }
 
   // ── 確認出貨 Modal ───────────────────────────────────────
@@ -259,6 +323,11 @@ export default function OrderDashboard() {
           <span className="text-stone-400 text-sm">出貨管理後台</span>
         </div>
         <div className="flex items-center gap-3">
+          {/* 列印模式指示器 */}
+          <span className={`text-xs px-2 py-1 rounded-full font-mono hidden sm:inline
+            ${printMode === 'local' ? 'bg-green-800 text-green-300' : printMode === 'browser' ? 'bg-stone-700 text-stone-400' : 'text-stone-600'}`}>
+            {printMode === 'local' ? '直接列印' : printMode === 'browser' ? '瀏覽器列印' : '偵測中...'}
+          </span>
           <button onClick={loadOrders} className="text-stone-400 hover:text-white p-2" title="重新整理">
             <RefreshCw size={16} />
           </button>
