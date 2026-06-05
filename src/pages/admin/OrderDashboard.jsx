@@ -72,11 +72,10 @@ function PickingListModal({ orders, items, onClose }) {
                 </div>
               </div>
               {/* 訂單號標籤 */}
-              <div className="flex flex-wrap gap-1 mt-2">
+              <div className="flex flex-wrap gap-1.5 mt-3">
                 {orders.map(o => (
                   <span key={o.id}
-                    className="font-mono bg-stone-100 text-stone-500 px-1.5 py-0 rounded-full"
-                    style={{ fontSize: '9px' }}>
+                    className="text-xs font-mono bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
                     {o.order_no}
                   </span>
                 ))}
@@ -87,20 +86,20 @@ function PickingListModal({ orders, items, onClose }) {
             <table className="w-full text-sm mb-4">
               <thead>
                 <tr className="bg-stone-900 text-white">
-                  <th className="text-left px-3 py-2 rounded-tl-lg font-bold">商品名稱</th>
-                  <th className="text-center px-3 py-2 font-bold w-32">條碼</th>
-                  <th className="text-center px-3 py-2 rounded-tr-lg font-bold w-24">需備數量</th>
+                  <th className="text-left px-3 py-2.5 rounded-tl-lg font-bold">商品名稱</th>
+                  <th className="text-center px-3 py-2.5 font-bold w-32">條碼</th>
+                  <th className="text-center px-3 py-2.5 rounded-tr-lg font-bold w-24">需備數量</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item, i) => (
                   <tr key={item.name}
                     className={i % 2 === 0 ? 'bg-white' : 'bg-stone-50'}>
-                    <td className="px-3 py-1.5 font-medium text-stone-900">{item.name}</td>
-                    <td className="px-3 py-1.5 text-center font-mono text-xs text-stone-400">
+                    <td className="px-3 py-2.5 font-medium text-stone-900">{item.name}</td>
+                    <td className="px-3 py-2.5 text-center font-mono text-xs text-stone-400">
                       {item.barcode || '—'}
                     </td>
-                    <td className="px-3 py-1.5 text-center">
+                    <td className="px-3 py-2.5 text-center">
                       <span className="bg-red-50 text-red-600 font-black text-base px-3 py-0.5 rounded-xl">
                         {item.qty} 件
                       </span>
@@ -110,11 +109,11 @@ function PickingListModal({ orders, items, onClose }) {
               </tbody>
               <tfoot>
                 <tr className="bg-stone-900 text-white">
-                  <td className="px-3 py-1.5 font-bold rounded-bl-lg">合計</td>
-                  <td className="px-3 py-1.5 text-center text-stone-400 text-xs">
+                  <td className="px-3 py-2.5 font-bold rounded-bl-lg">合計</td>
+                  <td className="px-3 py-2.5 text-center text-stone-400 text-xs">
                     {items.length} 種商品
                   </td>
-                  <td className="px-3 py-1.5 text-center rounded-br-lg">
+                  <td className="px-3 py-2.5 text-center rounded-br-lg">
                     <span className="bg-red-500 text-white font-black text-base px-3 py-0.5 rounded-xl">
                       {totalQty} 件
                     </span>
