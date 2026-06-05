@@ -18,6 +18,139 @@ const LOCAL_PRINT_API = 'http://127.0.0.1:3001'
 const TAB_LABELS = { paid: '待揀貨', picking: '揀貨中', packed: '已包裝', shipped: '已出貨' }
 const BATCH_TABS = ['paid', 'picking', 'shipped']
 
+
+// ── 揀貨清單 Modal ───────────────────────────────────────
+function PickingListModal({ orders, items, onClose }) {
+  const printRef = useRef(null)
+  const totalQty = items.reduce((s, i) => s + i.qty, 0)
+  const now = new Date().toLocaleString('zh-TW', {
+    year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit'
+  })
+
+  const handlePrint = useReactToPrint({
+    content: () => printRef.current,
+    pageStyle: '@page { size: A4 portrait; margin: 15mm; }',
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-stone-100 flex-shrink-0">
+          <div>
+            <h2 className="font-bold text-stone-900 text-lg">揀貨清單</h2>
+            <p className="text-xs text-stone-400 mt-0.5">
+              {orders.length} 筆訂單 · 共 {totalQty} 件商品
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={handlePrint}
+              className="btn-primary text-sm py-2 flex items-center gap-1.5">
+              <Printer size={14} /> 列印揀貨清單
+            </button>
+            <button onClick={onClose} className="text-stone-400 hover:text-stone-700 p-1">
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {/* 可列印區域 */}
+          <div ref={printRef}>
+            {/* 列印頁眉 */}
+            <div className="mb-4 pb-3 border-b-2 border-stone-900">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h1 className="font-black text-xl text-stone-900">{STORE.name}</h1>
+                  <p className="text-sm font-bold text-stone-600 mt-0.5">揀貨清單　Picking List</p>
+                </div>
+                <div className="text-right text-xs text-stone-500">
+                  <p>列印時間：{now}</p>
+                  <p className="mt-0.5">共 <strong>{orders.length}</strong> 筆訂單</p>
+                </div>
+              </div>
+              {/* 訂單號標籤 */}
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {orders.map(o => (
+                  <span key={o.id}
+                    className="text-xs font-mono bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
+                    {o.order_no}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* 商品彙整表格 */}
+            <table className="w-full text-sm mb-4">
+              <thead>
+                <tr className="bg-stone-900 text-white">
+                  <th className="text-left px-3 py-2.5 rounded-tl-lg font-bold">商品名稱</th>
+                  <th className="text-center px-3 py-2.5 font-bold w-32">條碼</th>
+                  <th className="text-center px-3 py-2.5 rounded-tr-lg font-bold w-24">需備數量</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item, i) => (
+                  <tr key={item.name}
+                    className={i % 2 === 0 ? 'bg-white' : 'bg-stone-50'}>
+                    <td className="px-3 py-2.5 font-medium text-stone-900">{item.name}</td>
+                    <td className="px-3 py-2.5 text-center font-mono text-xs text-stone-400">
+                      {item.barcode || '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <span className="bg-red-50 text-red-600 font-black text-base px-3 py-0.5 rounded-xl">
+                        {item.qty} 件
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-stone-900 text-white">
+                  <td className="px-3 py-2.5 font-bold rounded-bl-lg">合計</td>
+                  <td className="px-3 py-2.5 text-center text-stone-400 text-xs">
+                    {items.length} 種商品
+                  </td>
+                  <td className="px-3 py-2.5 text-center rounded-br-lg">
+                    <span className="bg-red-500 text-white font-black text-base px-3 py-0.5 rounded-xl">
+                      {totalQty} 件
+                    </span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+
+            {/* 撿貨確認欄（手動打勾用）*/}
+            <div className="border border-stone-200 rounded-xl p-4">
+              <p className="text-xs font-bold text-stone-500 mb-3 tracking-widest">
+                撿貨確認欄　（取貨後手動打勾）
+              </p>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
+                {items.map(item => (
+                  <div key={item.name} className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded border-2 border-stone-300 flex-shrink-0" />
+                    <span className="text-sm text-stone-700 truncate">
+                      {item.name}
+                      <span className="text-stone-400 ml-1">×{item.qty}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 列印頁尾 */}
+            <p className="text-center text-xs text-stone-400 mt-4">
+              {STORE.name} · 本表由系統自動產生 · {now}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 追蹤號碼 Modal ────────────────────────────────────────────
 function TrackingModal({ order, mode, continuousMode, onContinuousModeChange, onConfirm, onClose }) {
   const [trackingNo, setTrackingNo] = useState(order.tracking_no ?? '')
@@ -130,6 +263,7 @@ export default function OrderDashboard() {
   const [continuousMode, setContinuousMode] = useState(false)
   const [selected, setSelected]         = useState(new Set())
   const [printMode, setPrintMode]       = useState('checking')
+  const [pickingList, setPickingList]   = useState(null) // { orders, items }
   const printRef  = useRef(null)
   const autoPrint = useRef({ active: false })
   const { signOut } = useAuth()
@@ -152,27 +286,6 @@ export default function OrderDashboard() {
         loadOrders()
       }).subscribe()
     return () => supabase.removeChannel(channel)
-  }, [loadOrders])
-
-
-  // ── Broadcast：接收攤位收款通知（所有開著後台的人都收到）──
-  useEffect(() => {
-    const payChannel = supabase.channel('payment-events')
-      .on('broadcast', { event: 'payment_confirmed' }, ({ payload }) => {
-        const name   = payload.receiver_name ?? ''
-        const amount = payload.total_amount ?? 0
-        const method = { cash:'現金', card:'刷卡', taiwan_pay:'台灣PAY' }[payload.payment_method] ?? ''
-        toast(`💰 ${name} 已付款 NT$${Number(amount).toLocaleString()}（${method}）`, 'success', 6000)
-        sendNotification(
-          '💰 新收款',
-          `${name}  NT$${Number(amount).toLocaleString()}（${method}）`,
-          payload.order_no
-        )
-        playAlert()
-        loadOrders()
-      })
-      .subscribe()
-    return () => supabase.removeChannel(payChannel)
   }, [loadOrders])
 
   // 偵測本地列印伺服器
@@ -238,6 +351,30 @@ export default function OrderDashboard() {
     toast(`✓ 已批次更新 ${successCount} 筆訂單為「${STATUS_CONFIG[nextStatus]?.label}」`, 'success', 4000)
     clearSelection()
     loadOrders()
+  }
+
+
+  // ── 揀貨清單：彙整所選訂單的商品 ────────────────────────
+  async function openPickingList() {
+    const selectedOrderObjs = orders.filter(o => selected.has(o.id))
+    const ids = selectedOrderObjs.map(o => o.id)
+    const { data: allItems } = await supabase
+      .from('order_items').select('*').in('order_id', ids)
+    const agg = {}
+    for (const item of (allItems ?? [])) {
+      if (!agg[item.product_name]) {
+        agg[item.product_name] = {
+          name: item.product_name,
+          barcode: item.product_barcode ?? '',
+          qty: 0,
+        }
+      }
+      agg[item.product_name].qty += item.quantity
+    }
+    setPickingList({
+      orders: selectedOrderObjs,
+      items: Object.values(agg).sort((a, b) => b.qty - a.qty),
+    })
   }
 
   // ── 列印 ─────────────────────────────────────────────────
@@ -528,6 +665,12 @@ export default function OrderDashboard() {
                   className="text-stone-400 hover:text-white px-3 py-2 rounded-lg text-sm">
                   取消
                 </button>
+                {filter === 'picking' && (
+                  <button onClick={openPickingList}
+                    className="flex items-center gap-1.5 bg-stone-700 hover:bg-stone-600 text-white font-bold px-4 py-2 rounded-xl text-sm transition-colors">
+                    <Printer size={14} /> 揀貨清單
+                  </button>
+                )}
                 <button onClick={handleBulkUpdate}
                   className="bg-red-500 hover:bg-red-600 text-white font-bold px-4 py-2 rounded-xl text-sm transition-colors">
                   {bulkNextLabel} →
@@ -548,6 +691,15 @@ export default function OrderDashboard() {
           )}
         </div>
       </div>
+
+      {/* 揀貨清單 Modal */}
+      {pickingList && (
+        <PickingListModal
+          orders={pickingList.orders}
+          items={pickingList.items}
+          onClose={() => setPickingList(null)}
+        />
+      )}
 
       {/* 追蹤號碼 Modal */}
       {trackingModal && (
