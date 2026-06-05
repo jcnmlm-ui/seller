@@ -21,7 +21,7 @@ export default defineConfig({
         background_color: '#ffffff',
         display: 'standalone',
         orientation: 'any',
-        start_url: '/seller/',
+        start_url: '/seller/#/admin',
         scope: '/seller/',
         icons: [
           {
