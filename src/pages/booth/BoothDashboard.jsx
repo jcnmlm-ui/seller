@@ -40,7 +40,10 @@ export default function BoothDashboard() {
     if (order?.status === 'pending' && !confirming) {
       await confirmPayment(); return
     }
-    const q = query.trim().toUpperCase()
+    // 如果掃到的是完整網址，自動抽出訂單號
+    const raw = query.trim()
+    const match = raw.match(/ORD-[\d-]+/)
+    const q = match ? match[0] : raw.toUpperCase()
     if (!q) return
     setLoading(true); setOrder(null); setItems([]); setEditingPayment(false)
     const { data: ord } = await supabase.from('orders').select('*').eq('order_no', q).single()
