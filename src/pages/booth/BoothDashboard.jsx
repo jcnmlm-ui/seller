@@ -35,11 +35,18 @@ export default function BoothDashboard() {
   }
 
   // ── 搜尋 / 確認收款（Enter 兩用）────────────────────────
-  async function handleSearch(e) {
-    e.preventDefault()
-    if (order?.status === 'pending' && !confirming) {
-      await confirmPayment(); return
-    }
+    async function handleSearch(e) {
+      e.preventDefault()
+    
+      // 如果輸入欄有內容（代表剛刷讀進來），優先查詢，不觸發確認收款
+      if (query.trim()) {
+        // 有內容就直接往下查詢，不管目前是否有待收款訂單
+      } else if (order?.status === 'pending' && !confirming) {
+        // 輸入欄是空的才代表人工按 Enter 確認
+        await confirmPayment(); return
+      } else {
+        return
+      }
     // 如果掃到的是完整網址，自動抽出訂單號
     const raw = query.trim()
     const match = raw.match(/ORD-[\d-]+/)
