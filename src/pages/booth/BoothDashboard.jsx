@@ -143,6 +143,11 @@ export default function BoothDashboard() {
           <p className="text-xs text-stone-400">攤位收款介面</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link to="/cashier"
+            className="flex items-center gap-1.5 text-stone-300 hover:text-white text-xs border border-stone-700 hover:border-stone-500 rounded-lg px-3 py-2 transition-colors">
+            🏪 現場收銀台
+          </Link>
+
           <Link to="/admin"
             className="flex items-center gap-1.5 text-stone-300 hover:text-white text-xs border border-stone-700 hover:border-stone-500 rounded-lg px-3 py-2 transition-colors">
             <Monitor size={13} /> 出貨管理後台
