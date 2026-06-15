@@ -12,6 +12,7 @@ import BoothDashboard   from './pages/booth/BoothDashboard'
 import OrderDashboard   from './pages/admin/OrderDashboard'
 import ProductManage    from './pages/admin/ProductManage'
 import ReportsDashboard from './pages/admin/ReportsDashboard'
+import SettingsPage     from './pages/admin/SettingsPage'
 import LoginPage        from './pages/LoginPage'
 
 export default function App() {
@@ -31,10 +32,11 @@ export default function App() {
               <Route path="/login" element={<LoginPage />} />
 
               {/* 後台（需登入）*/}
-              <Route path="/booth"          element={<ProtectedRoute><BoothDashboard /></ProtectedRoute>} />
-              <Route path="/admin"          element={<ProtectedRoute><OrderDashboard /></ProtectedRoute>} />
-              <Route path="/admin/products" element={<ProtectedRoute><ProductManage /></ProtectedRoute>} />
-              <Route path="/admin/reports"  element={<ProtectedRoute><ReportsDashboard /></ProtectedRoute>} />
+              <Route path="/booth"           element={<ProtectedRoute><BoothDashboard /></ProtectedRoute>} />
+              <Route path="/admin"           element={<ProtectedRoute><OrderDashboard /></ProtectedRoute>} />
+              <Route path="/admin/products"  element={<ProtectedRoute><ProductManage /></ProtectedRoute>} />
+              <Route path="/admin/reports"   element={<ProtectedRoute><ReportsDashboard /></ProtectedRoute>} />
+              <Route path="/admin/settings"  element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
 
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
