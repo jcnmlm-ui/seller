@@ -1,4 +1,4 @@
-// ─── A4 出貨單：寄件人左、收件人右（較大）─────────────────
+// ─── A4 出貨單 ─────────────────────────────────────────────
 import { useEffect, useRef } from 'react'
 import JsBarcode from 'jsbarcode'
 import { STORE, PAYMENT_LABELS } from '../../config/store'
@@ -23,8 +23,14 @@ const STATUS_LABELS = {
   packed:'已包裝', shipped:'已出貨', delivered:'已送達',
 }
 
-export default function ShippingSlipA4({ order, items }) {
-  const payLabel = { cash:'現金', card:'刷卡', taiwan_pay:'台灣PAY' }
+export default function ShippingSlipA4({ order, items, senderInfo }) {
+  // senderInfo 優先，fallback 到 store.js
+  const senderName    = senderInfo?.sender_name        || STORE.name
+  const senderPhone   = senderInfo?.sender_phone       || STORE.phone
+  const senderAddress = senderInfo?.sender_address     || STORE.address
+  const senderPostal  = senderInfo?.sender_postal_code || ''
+
+  const payLabel   = { cash:'現金', card:'刷卡', taiwan_pay:'台灣PAY' }
   const postalCode = order.receiver_postal_code || ''
 
   return (
@@ -34,7 +40,7 @@ export default function ShippingSlipA4({ order, items }) {
       <div style={{ borderBottom:'2px solid #000', paddingBottom:'8px', marginBottom:'10px',
                     display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
         <div>
-          <div style={{ fontSize:'20px', fontWeight:'900' }}>{STORE.name}　出貨單</div>
+          <div style={{ fontSize:'20px', fontWeight:'900' }}>{senderName}　出貨單</div>
           <div style={{ fontSize:'11px', color:'#555' }}>
             下單：{new Date(order.created_at).toLocaleString('zh-TW')}
             {order.paid_at && `　付款：${new Date(order.paid_at).toLocaleString('zh-TW')}`}
@@ -59,22 +65,25 @@ export default function ShippingSlipA4({ order, items }) {
         <div style={{ fontFamily:'monospace', fontWeight:'bold', fontSize:'14px' }}>{order.order_no}</div>
       </div>
 
-      {/* ── 寄件人（左）+ 收件人（右，較大）── */}
+      {/* ── 寄件人（左）+ 收件人（右）── */}
       <div style={{ display:'grid', gridTemplateColumns:'2fr 3fr', gap:'12px', marginBottom:'14px' }}>
 
         {/* 寄件人 */}
         <div style={{ border:'1px solid #ccc', borderRadius:'6px', padding:'10px 12px' }}>
-          <div style={{ fontSize:'10px', color:'#888', letterSpacing:'2px',
-                        textTransform:'uppercase', marginBottom:'5px' }}>寄　件　人</div>
-          <div style={{ fontWeight:'700', fontSize:'14px' }}>{STORE.name}</div>
-          <div style={{ fontSize:'12px', marginTop:'2px' }}>{STORE.phone}</div>
-          <div style={{ fontSize:'12px', marginTop:'2px', color:'#444' }}>{STORE.address}</div>
+          <div style={{ fontSize:'10px', color:'#888', letterSpacing:'2px', marginBottom:'5px' }}>
+            寄　件　人
+          </div>
+          <div style={{ fontWeight:'700', fontSize:'14px' }}>{senderName}</div>
+          {senderPhone   && <div style={{ fontSize:'12px', marginTop:'2px' }}>{senderPhone}</div>}
+          {senderPostal  && <div style={{ fontSize:'12px', marginTop:'2px' }}>{senderPostal}</div>}
+          {senderAddress && <div style={{ fontSize:'12px', marginTop:'2px', color:'#444' }}>{senderAddress}</div>}
         </div>
 
-        {/* 收件人（重點，較大） */}
+        {/* 收件人 */}
         <div style={{ border:'2px solid #000', borderRadius:'6px', padding:'12px 14px' }}>
-          <div style={{ fontSize:'10px', color:'#888', letterSpacing:'2px',
-                        textTransform:'uppercase', marginBottom:'6px' }}>收　件　人</div>
+          <div style={{ fontSize:'10px', color:'#888', letterSpacing:'2px', marginBottom:'6px' }}>
+            收　件　人
+          </div>
           <div style={{ fontWeight:'900', fontSize:'22px', lineHeight:'1.2', marginBottom:'4px' }}>
             {order.receiver_name}
           </div>
@@ -97,7 +106,7 @@ export default function ShippingSlipA4({ order, items }) {
         </div>
       </div>
 
-      {/* ── 商品揀貨清單 ── */}
+      {/* ── 商品清單 ── */}
       <div style={{ border:'1px solid #ccc', borderRadius:'6px', overflow:'hidden', marginBottom:'12px' }}>
         <div style={{ background:'#1a1a2e', color:'white', padding:'7px 12px',
                       fontWeight:'bold', fontSize:'12px', letterSpacing:'1px' }}>
@@ -141,8 +150,7 @@ export default function ShippingSlipA4({ order, items }) {
             <tr style={{ background:'#f5f5f5', borderTop:'2px solid #ccc' }}>
               <td colSpan="3" style={{ padding:'9px 10px', textAlign:'right',
                                        fontWeight:'bold', fontSize:'13px' }}>合計</td>
-              <td style={{ padding:'9px 10px', textAlign:'right',
-                            fontWeight:'900', fontSize:'18px' }}>
+              <td style={{ padding:'9px 10px', textAlign:'right', fontWeight:'900', fontSize:'18px' }}>
                 NT${order.total_amount.toLocaleString()}
               </td>
             </tr>
@@ -153,7 +161,7 @@ export default function ShippingSlipA4({ order, items }) {
       {/* ── 頁尾 ── */}
       <div style={{ fontSize:'10px', color:'#aaa', textAlign:'center',
                     borderTop:'1px dashed #ccc', paddingTop:'7px' }}>
-        此出貨單由系統自動產生 · {STORE.name} · 列印時間：{new Date().toLocaleString('zh-TW')}
+        此出貨單由系統自動產生 · {senderName} · 列印時間：{new Date().toLocaleString('zh-TW')}
       </div>
     </div>
   )
