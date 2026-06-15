@@ -37,6 +37,7 @@ export default function ReportsDashboard() {
   const [preset,  setPreset]  = useState('本月')
   const [custom,  setCustom]  = useState({ start: '', end: '' })
   const [useCustom, setUseCustom] = useState(false)
+  const [sourceFilter, setSourceFilter] = useState('all')  // all | online | booth_cashier
   const printRef = useRef(null)
 
   // 計算查詢範圍
@@ -55,9 +56,10 @@ export default function ReportsDashboard() {
     const { s, e } = getRange()
     let q = supabase
       .from('orders')
-      .select('id,order_no,receiver_name,receiver_phone,total_amount,status,payment_method,created_at,shipped_at')
+      .select('id,order_no,receiver_name,receiver_phone,total_amount,status,payment_method,created_at,shipped_at,source')
       .neq('status', 'pending')
       .order('created_at', { ascending: false })
+    if (sourceFilter !== 'all') q = q.eq('source', sourceFilter)
     if (s) q = q.gte('created_at', s.toISOString())
     if (e) q = q.lte('created_at', e.toISOString())
 
@@ -73,7 +75,7 @@ export default function ReportsDashboard() {
       setItems([])
     }
     setLoading(false)
-  }, [preset, useCustom, custom])
+  }, [preset, useCustom, custom, sourceFilter])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -179,6 +181,24 @@ export default function ReportsDashboard() {
                     ? 'bg-stone-900 text-white'
                     : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}>
                 {p}
+              </button>
+            ))}
+          </div>
+
+          {/* 來源篩選 */}
+          <div className="flex gap-1 flex-shrink-0">
+            {[
+              { value: 'all',           label: '全部來源' },
+              { value: 'online',        label: '📱 預購' },
+              { value: 'booth_cashier', label: '🏪 現場' },
+            ].map(s => (
+              <button key={s.value}
+                onClick={() => setSourceFilter(s.value)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all
+                  ${sourceFilter === s.value
+                    ? 'bg-stone-900 text-white'
+                    : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}>
+                {s.label}
               </button>
             ))}
           </div>
@@ -379,6 +399,29 @@ export default function ReportsDashboard() {
                 </div>
               </div>
 
+
+              {/* ── 來源分布 ── */}
+              <div className="bg-white rounded-xl border border-stone-200 p-5">
+                <h2 className="font-bold text-stone-900 mb-3">🔀 銷售來源分布</h2>
+                <div className="flex gap-4">
+                  {[
+                    { key: 'online',        label: '📱 顧客預購', color: 'bg-blue-50 text-blue-700' },
+                    { key: 'booth_cashier', label: '🏪 現場銷售', color: 'bg-amber-50 text-amber-700' },
+                  ].map(s => {
+                    const sub = orders.filter(o => (o.source ?? 'online') === s.key)
+                    const amt = sub.reduce((a, o) => a + Number(o.total_amount), 0)
+                    return (
+                      <div key={s.key} className={`flex-1 ${s.color} rounded-xl p-4`}>
+                        <p className="text-sm font-bold mb-1">{s.label}</p>
+                        <p className="font-black text-2xl">{sub.length} 筆</p>
+                        <p className="text-sm mt-0.5">NT${amt.toLocaleString()}</p>
+                        <p className="text-xs opacity-70 mt-0.5">{pct(sub.length, orders.length)}%</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
               {/* ── 訂單明細列表 ── */}
               <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
                 <div className="px-5 py-3 border-b border-stone-100 flex items-center justify-between">
@@ -415,6 +458,9 @@ export default function ReportsDashboard() {
                             <span className="text-xs text-stone-500">
                               {{ paid:'已付款', picking:'揀貨中', packed:'已包裝', shipped:'已出貨', delivered:'已送達' }[o.status] ?? o.status}
                             </span>
+                            {o.source === 'booth_cashier' && (
+                              <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">現場</span>
+                            )}
                           </td>
                         </tr>
                       ))}
