@@ -72,10 +72,11 @@ function PickingListModal({ orders, items, onClose }) {
                 </div>
               </div>
               {/* 訂單號標籤 */}
-              <div className="flex flex-wrap gap-1.5 mt-3">
+              <div className="flex flex-wrap gap-1 mt-2">
                 {orders.map(o => (
                   <span key={o.id}
-                    className="text-xs font-mono bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
+                    className="font-mono bg-stone-100 text-stone-500 px-1.5 py-0 rounded-full"
+                    style={{ fontSize: '9px' }}>
                     {o.order_no}
                   </span>
                 ))}
@@ -86,23 +87,21 @@ function PickingListModal({ orders, items, onClose }) {
             <table className="w-full text-sm mb-4">
               <thead>
                 <tr className="bg-stone-900 text-white">
-                  <th className="text-left px-3 py-2.5 rounded-tl-lg font-bold">商品名稱</th>
-                  <th className="text-center px-3 py-2.5 font-bold w-32">條碼</th>
-                  <th className="text-center px-3 py-2.5 rounded-tr-lg font-bold w-24">需備數量</th>
+                  <th className="text-left px-3 py-2 rounded-tl-lg font-bold">商品名稱</th>
+                  <th className="text-center px-3 py-2 font-bold w-32">條碼</th>
+                  <th className="text-center px-3 py-2 rounded-tr-lg font-bold w-24">需備數量</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item, i) => (
                   <tr key={item.name}
                     className={i % 2 === 0 ? 'bg-white' : 'bg-stone-50'}>
-                    <td className="px-3 py-2.5 font-medium text-stone-900">{item.name}</td>
-                    <td className="px-3 py-2.5 text-center font-mono text-xs text-stone-400">
+                    <td className="px-3 py-1 font-medium text-stone-900">{item.name}</td>
+                    <td className="px-3 py-1 text-center font-mono text-xs text-stone-400">
                       {item.barcode || '—'}
                     </td>
-                    <td className="px-3 py-2.5 text-center">
-                      <span className="bg-red-50 text-red-600 font-black text-base px-3 py-0.5 rounded-xl">
-                        {item.qty} 件
-                      </span>
+                    <td className="px-3 py-1 text-center text-stone-900">
+                      {item.qty} 件
                     </td>
                   </tr>
                 ))}
@@ -113,10 +112,8 @@ function PickingListModal({ orders, items, onClose }) {
                   <td className="px-3 py-2.5 text-center text-stone-400 text-xs">
                     {items.length} 種商品
                   </td>
-                  <td className="px-3 py-2.5 text-center rounded-br-lg">
-                    <span className="bg-red-500 text-white font-black text-base px-3 py-0.5 rounded-xl">
-                      {totalQty} 件
-                    </span>
+                  <td className="px-3 py-1.5 text-center rounded-br-lg font-bold">
+                    {totalQty} 件
                   </td>
                 </tr>
               </tfoot>
@@ -269,6 +266,28 @@ export default function OrderDashboard() {
   const autoPrint = useRef({ active: false })
   const { signOut } = useAuth()
 
+  // ── 音效 + 系統通知 ─────────────────────────────────────
+  function playAlert() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(880, ctx.currentTime)
+      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.12)
+      gain.gain.setValueAtTime(0.4, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6)
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.6)
+    } catch {}
+  }
+
+  function sendNotification(title, body, tag) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(title, { body, icon: '/seller/favicon.ico', tag })
+    }
+  }
+
   const loadOrders = useCallback(async () => {
     const { data } = await supabase
       .from('orders').select('*')
@@ -277,16 +296,42 @@ export default function OrderDashboard() {
   }, [])
 
   useEffect(() => {
+    // 申請瀏覽器通知權限
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
     loadOrders()
+    // 讀取寄件人設定
+    supabase.from('settings').select('*').eq('id', 'main').single()
+      .then(({ data }) => { if (data) setSenderSettings(data) })
     const channel = supabase.channel('orders-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
         if (payload.eventType === 'INSERT') {
           setNewAlert(true); setTimeout(() => setNewAlert(false), 5000)
           toast('🔔 新訂單到了！', 'success', 5000)
+          playAlert()
+          sendNotification('🔔 新訂單', '有新的預購訂單進來了！', 'new-order')
         }
         loadOrders()
       }).subscribe()
     return () => supabase.removeChannel(channel)
+  }, [loadOrders])
+
+
+  // ── Broadcast：接收攤位收款通知（所有後台同步收到）──
+  useEffect(() => {
+    const payChannel = supabase.channel('payment-events')
+      .on('broadcast', { event: 'payment_confirmed' }, ({ payload }) => {
+        const name   = payload.receiver_name ?? ''
+        const amount = payload.total_amount  ?? 0
+        const method = { cash:'現金', card:'刷卡', taiwan_pay:'台灣PAY' }[payload.payment_method] ?? ''
+        toast(`💰 ${name} 已付款 NT$${Number(amount).toLocaleString()}（${method}）`, 'success', 6000)
+        sendNotification('💰 新收款', `${name}  NT$${Number(amount).toLocaleString()}（${method}）`, payload.order_no)
+        playAlert()
+        loadOrders()
+      })
+      .subscribe()
+    return () => supabase.removeChannel(payChannel)
   }, [loadOrders])
 
   // 偵測本地列印伺服器
