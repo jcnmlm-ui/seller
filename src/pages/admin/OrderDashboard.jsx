@@ -72,11 +72,10 @@ function PickingListModal({ orders, items, onClose }) {
                 </div>
               </div>
               {/* 訂單號標籤 */}
-              <div className="flex flex-wrap gap-1 mt-2">
+              <div className="flex flex-wrap gap-1.5 mt-3">
                 {orders.map(o => (
                   <span key={o.id}
-                    className="font-mono bg-stone-100 text-stone-500 px-1.5 py-0 rounded-full"
-                    style={{ fontSize: '9px' }}>
+                    className="text-xs font-mono bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
                     {o.order_no}
                   </span>
                 ))}
@@ -87,21 +86,23 @@ function PickingListModal({ orders, items, onClose }) {
             <table className="w-full text-sm mb-4">
               <thead>
                 <tr className="bg-stone-900 text-white">
-                  <th className="text-left px-3 py-2 rounded-tl-lg font-bold">商品名稱</th>
-                  <th className="text-center px-3 py-2 font-bold w-32">條碼</th>
-                  <th className="text-center px-3 py-2 rounded-tr-lg font-bold w-24">需備數量</th>
+                  <th className="text-left px-3 py-2.5 rounded-tl-lg font-bold">商品名稱</th>
+                  <th className="text-center px-3 py-2.5 font-bold w-32">條碼</th>
+                  <th className="text-center px-3 py-2.5 rounded-tr-lg font-bold w-24">需備數量</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item, i) => (
                   <tr key={item.name}
                     className={i % 2 === 0 ? 'bg-white' : 'bg-stone-50'}>
-                    <td className="px-3 py-1 font-medium text-stone-900">{item.name}</td>
-                    <td className="px-3 py-1 text-center font-mono text-xs text-stone-400">
+                    <td className="px-3 py-2.5 font-medium text-stone-900">{item.name}</td>
+                    <td className="px-3 py-2.5 text-center font-mono text-xs text-stone-400">
                       {item.barcode || '—'}
                     </td>
-                    <td className="px-3 py-1 text-center text-stone-900">
-                      {item.qty} 件
+                    <td className="px-3 py-2.5 text-center">
+                      <span className="bg-red-50 text-red-600 font-black text-base px-3 py-0.5 rounded-xl">
+                        {item.qty} 件
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -112,8 +113,10 @@ function PickingListModal({ orders, items, onClose }) {
                   <td className="px-3 py-2.5 text-center text-stone-400 text-xs">
                     {items.length} 種商品
                   </td>
-                  <td className="px-3 py-1.5 text-center rounded-br-lg font-bold">
-                    {totalQty} 件
+                  <td className="px-3 py-2.5 text-center rounded-br-lg">
+                    <span className="bg-red-500 text-white font-black text-base px-3 py-0.5 rounded-xl">
+                      {totalQty} 件
+                    </span>
                   </td>
                 </tr>
               </tfoot>
@@ -260,6 +263,7 @@ export default function OrderDashboard() {
   const [continuousMode, setContinuousMode] = useState(false)
   const [selected, setSelected]         = useState(new Set())
   const [printMode, setPrintMode]       = useState('checking')
+  const [senderSettings, setSenderSettings] = useState(null)
   const [pickingList, setPickingList]   = useState(null) // { orders, items }
   const printRef  = useRef(null)
   const autoPrint = useRef({ active: false })
@@ -413,6 +417,10 @@ export default function OrderDashboard() {
             template,
             data: {
               order_no:             order.order_no,
+              sender_name:          senderSettings?.sender_name        ?? '',
+              sender_phone:         senderSettings?.sender_phone       ?? '',
+              sender_postal_code:   senderSettings?.sender_postal_code ?? '',
+              sender_address:       senderSettings?.sender_address     ?? '',
               status:               order.status,
               payment_method:       order.payment_method,
               created_at:           order.created_at,
@@ -564,6 +572,12 @@ export default function OrderDashboard() {
             <span className="text-[10px]">銷售報表</span>
           </Link>
         
+          <Link to="/admin/settings"
+            className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
+            <span className="text-sm leading-none">⚙️</span>
+            <span className="text-[10px]">系統設定</span>
+          </Link>
+
           <button onClick={signOut}
             className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
             <LogOut size={15} />
@@ -683,8 +697,8 @@ export default function OrderDashboard() {
         <div ref={printRef}>
           {printTarget && (
             printType === 'a4'
-              ? <ShippingSlipA4 order={printTarget} items={orderItems[printTarget.id] ?? []} />
-              : <WaybillA5 order={printTarget} items={orderItems[printTarget.id] ?? []} />
+              ? <ShippingSlipA4 order={printTarget} items={orderItems[printTarget.id] ?? []} senderInfo={senderSettings} />
+              : <WaybillA5 order={printTarget} items={orderItems[printTarget.id] ?? []} senderInfo={senderSettings} />
           )}
         </div>
       </div>
