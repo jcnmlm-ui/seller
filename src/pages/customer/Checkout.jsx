@@ -6,7 +6,7 @@ import { useCart } from '../../context/CartContext'
 import { CITIES, getDistricts, getPostalCode } from '../../data/postal_codes'
 
 export default function Checkout() {
-  const { items, dispatch, total } = useCart()
+  const { items, dispatch, total, stampTotal, invoiceTotal } = useCart()
   const navigate = useNavigate()
   const [form, setForm] = useState({
     name: '', mobile: '', landline: '',
@@ -89,6 +89,7 @@ export default function Checkout() {
           product_barcode: i.barcode ?? null,
           unit_price:      i.price,
           quantity:        i.quantity,
+          stamp_amount:    i.stamp_amount ?? 0,
         })))
       if (itemsErr) throw new Error(itemsErr.message)
 
@@ -158,18 +159,35 @@ export default function Checkout() {
                     >+</button>
                   </div>
                   {/* 小計 */}
-                  <p className="font-bold text-stone-900 text-sm w-16 text-right">
-                    NT${(item.price * item.quantity).toLocaleString()}
-                  </p>
+                  <div className="text-right">
+                    <p className="font-bold text-stone-900 text-sm">
+                      NT${(item.price * item.quantity).toLocaleString()}
+                    </p>
+                    {(item.stamp_amount > 0) && (
+                      <p className="text-xs text-blue-500">含郵票 NT${(item.stamp_amount * item.quantity).toLocaleString()}</p>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
-          <div className="border-t border-stone-100 mt-4 pt-3 flex justify-between items-center">
-            <span className="text-stone-500 text-sm">
-              共 {items.reduce((s, i) => s + i.quantity, 0)} 件
-            </span>
-            <span className="font-black text-xl text-red-500">NT${total.toLocaleString()}</span>
+          <div className="border-t border-stone-100 mt-4 pt-3">
+            <div className="flex justify-between items-center">
+              <span className="text-stone-500 text-sm">共 {items.reduce((s, i) => s + i.quantity, 0)} 件</span>
+              <div className="text-right">
+                <div className="flex items-center gap-2 justify-end">
+                  {stampTotal > 0 && <span className="text-xs text-stone-400">實收</span>}
+                  <span className="font-black text-xl text-red-500">NT${total.toLocaleString()}</span>
+                </div>
+                {stampTotal > 0 && (
+                  <div className="flex items-center gap-2 justify-end mt-0.5">
+                    <span className="text-xs text-stone-400">發票</span>
+                    <span className="font-semibold text-stone-500">NT${invoiceTotal.toLocaleString()}</span>
+                    <span className="text-xs text-blue-400">（扣郵票 NT${stampTotal.toLocaleString()}）</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
