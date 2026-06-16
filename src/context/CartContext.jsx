@@ -33,7 +33,6 @@ function cartReducer(state, action) {
 export function CartProvider({ children }) {
   const [items, dispatch] = useReducer(cartReducer, [])
 
-  // 初始化時從 localStorage 讀取購物車
   useEffect(() => {
     try {
       const saved = localStorage.getItem('booth_cart')
@@ -41,16 +40,18 @@ export function CartProvider({ children }) {
     } catch {}
   }, [])
 
-  // 變動時儲存到 localStorage
   useEffect(() => {
     localStorage.setItem('booth_cart', JSON.stringify(items))
   }, [items])
 
-  const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0)
-  const count = items.reduce((sum, i) => sum + i.quantity, 0)
+  const total       = items.reduce((s, i) => s + i.price * i.quantity, 0)
+  const count       = items.reduce((s, i) => s + i.quantity, 0)
+  // 郵票金額合計（發票金額 = total - stampTotal）
+  const stampTotal  = items.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.quantity, 0)
+  const invoiceTotal = total - stampTotal
 
   return (
-    <CartContext.Provider value={{ items, dispatch, total, count }}>
+    <CartContext.Provider value={{ items, dispatch, total, count, stampTotal, invoiceTotal }}>
       {children}
     </CartContext.Provider>
   )
