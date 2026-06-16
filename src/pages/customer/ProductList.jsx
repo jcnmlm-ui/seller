@@ -106,6 +106,9 @@ function ProductCard({ product, cartItem, onAdd, onUpdate }) {
         {product.barcode && (
           <p className="text-xs text-stone-400 font-mono mb-1">{product.barcode}</p>
         )}
+        {product.stamp_amount > 0 && (
+          <p className="text-xs text-blue-500 mb-1">📮 含郵票 NT${product.stamp_amount}</p>
+        )}
         <p className="text-red-500 font-black text-base mt-auto mb-2">
           NT${product.price.toLocaleString()}
         </p>
