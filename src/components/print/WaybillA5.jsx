@@ -31,7 +31,7 @@ export default function WaybillA5({ order, items, senderInfo }) {
         padding: '3mm 4mm',
         lineHeight: 1.5,
       }}>
-        <div style={{ fontSize: '8px', color: '#888', letterSpacing: '2px', marginBottom: '2px' }}>
+        <div style={{ fontSize: '9px', color: '#888', letterSpacing: '2px', marginBottom: '2px' }}>
           寄　件　人
         </div>
         <div style={{ fontSize: '11px', fontWeight: '700' }}>{senderName}</div>
@@ -51,7 +51,7 @@ export default function WaybillA5({ order, items, senderInfo }) {
         display: 'flex',
         flexDirection: 'column',
       }}>
-        <div style={{ fontSize: '8px', color: '#888', letterSpacing: '2px', marginBottom: '3mm' }}>
+        <div style={{ fontSize: '9px', color: '#888', letterSpacing: '2px', marginBottom: '3mm' }}>
           收　件　人
         </div>
 
@@ -102,7 +102,7 @@ export default function WaybillA5({ order, items, senderInfo }) {
           textAlign: 'center', fontSize: '18px', fontWeight: '700',
           letterSpacing: '1.5px', color: '#222',
         }}>
-          無法投遞，請退回寄件人
+          無法投遞時，請退回寄件人
         </div>
       </div>
 
