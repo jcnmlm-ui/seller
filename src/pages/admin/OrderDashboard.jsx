@@ -881,6 +881,23 @@ function OrderCard({
             </div>
           )}
 
+          {/* 雙金額小結（有郵票才顯示）*/}
+          {items && (() => {
+            const stampTotal = items.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.quantity, 0)
+            if (stampTotal === 0) return null
+            const invoiceAmount = order.total_amount - stampTotal
+            return (
+              <div className="flex justify-end items-center gap-3 text-sm bg-blue-50 rounded-xl px-4 py-2">
+                <span className="text-stone-400 text-xs">實收</span>
+                <span className="font-black text-stone-900">NT${order.total_amount.toLocaleString()}</span>
+                <span className="text-stone-300">|</span>
+                <span className="text-stone-400 text-xs">發票</span>
+                <span className="font-bold text-stone-600">NT${invoiceAmount.toLocaleString()}</span>
+                <span className="text-xs text-blue-400">含郵票 NT${stampTotal.toLocaleString()}</span>
+              </div>
+            )
+          })()}
+
           <div className="flex flex-wrap gap-2 items-center">
             <button onClick={() => onPrint('a4')}
               className="flex items-center gap-1.5 bg-stone-100 text-stone-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-stone-200 transition-colors">
