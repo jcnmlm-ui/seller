@@ -7,6 +7,7 @@ import { toast } from '../../components/StatusBadge'
 const EMPTY_FORM = {
   name: '', description: '', barcode: '', price: '',
   stock: '-1', is_available: true, image_url: '',
+  stamp_amount: '0',
 }
 
 export default function ProductManage() {
@@ -36,6 +37,7 @@ export default function ProductManage() {
       barcode: p.barcode ?? '', price: String(p.price),
       stock: String(p.stock), is_available: p.is_available,
       image_url: p.image_url ?? '',
+      stamp_amount: String(p.stamp_amount ?? 0),
     })
     setShowForm(true)
   }
@@ -87,6 +89,7 @@ export default function ProductManage() {
       stock: parseInt(form.stock) || -1,
       is_available: form.is_available,
       image_url: form.image_url || null,
+      stamp_amount: parseFloat(form.stamp_amount) || 0,
     }
     let error
     if (editing) {
@@ -149,6 +152,11 @@ export default function ProductManage() {
               {p.barcode && <p className="text-xs text-stone-400 font-mono">{p.barcode}</p>}
               <div className="flex items-center gap-3 mt-0.5 text-sm">
                 <span className="font-bold text-red-500">NT${p.price.toLocaleString()}</span>
+                {p.stamp_amount > 0 && (
+                  <span className="text-xs bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded-full">
+                    含郵票 NT${p.stamp_amount}
+                  </span>
+                )}
                 <span className="text-stone-400">庫存：{p.stock === -1 ? '無限' : `${p.stock} 件`}</span>
               </div>
             </div>
@@ -262,6 +270,17 @@ export default function ProductManage() {
                     onChange={e => setForm(f=>({...f,price:e.target.value}))}
                     placeholder="85" />
                 </div>
+              </div>
+
+              {/* 郵票金額 */}
+              <div>
+                <label className="label">含郵票金額（NT$）</label>
+                <input className="input" type="number" min="0" step="0.01" value={form.stamp_amount}
+                  onChange={e => setForm(f=>({...f,stamp_amount:e.target.value}))}
+                  placeholder="0" />
+                <p className="text-xs text-stone-400 mt-1">
+                  商品內含郵票時填入郵票面額，發票金額將自動扣除此金額。不含郵票填 0。
+                </p>
               </div>
 
               {/* 庫存 */}
