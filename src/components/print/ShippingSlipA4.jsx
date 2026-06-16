@@ -149,11 +149,27 @@ export default function ShippingSlipA4({ order, items, senderInfo }) {
           <tfoot>
             <tr style={{ background:'#f5f5f5', borderTop:'2px solid #ccc' }}>
               <td colSpan="3" style={{ padding:'9px 10px', textAlign:'right',
-                                       fontWeight:'bold', fontSize:'13px' }}>合計</td>
+                                       fontWeight:'bold', fontSize:'13px' }}>實收合計</td>
               <td style={{ padding:'9px 10px', textAlign:'right', fontWeight:'900', fontSize:'18px' }}>
                 NT${order.total_amount.toLocaleString()}
               </td>
             </tr>
+            {(() => {
+              const stampTotal = items.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.quantity, 0)
+              if (stampTotal === 0) return null
+              const invoiceAmount = order.total_amount - stampTotal
+              return (
+                <tr style={{ background:'#eef6ff', borderTop:'1px solid #ddd' }}>
+                  <td colSpan="3" style={{ padding:'6px 10px', textAlign:'right',
+                                           fontWeight:'bold', fontSize:'12px', color:'#444' }}>
+                    發票金額（扣郵票 NT${stampTotal.toLocaleString()}）
+                  </td>
+                  <td style={{ padding:'6px 10px', textAlign:'right', fontWeight:'700', fontSize:'15px', color:'#333' }}>
+                    NT${invoiceAmount.toLocaleString()}
+                  </td>
+                </tr>
+              )
+            })()}
           </tfoot>
         </table>
       </div>
