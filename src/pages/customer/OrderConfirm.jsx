@@ -192,11 +192,30 @@ export default function OrderConfirm() {
               </div>
             ))}
           </div>
-          <div className="border-t border-stone-100 mt-3 pt-3 flex justify-between items-center">
-            <span className="font-semibold text-stone-600">合計</span>
-            <span className="font-black text-lg text-red-500">
-              NT${order.total_amount.toLocaleString()}
-            </span>
+          <div className="border-t border-stone-100 mt-3 pt-3">
+            {(() => {
+              const stampTotal = items.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.quantity, 0)
+              const invoiceAmount = order.total_amount - stampTotal
+              return (
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-stone-600">合計</span>
+                  <div className="text-right">
+                    <div className="flex items-center gap-2 justify-end">
+                      {stampTotal > 0 && <span className="text-xs text-stone-400">實收</span>}
+                      <span className="font-black text-lg text-red-500">
+                        NT${order.total_amount.toLocaleString()}
+                      </span>
+                    </div>
+                    {stampTotal > 0 && (
+                      <div className="flex items-center gap-2 justify-end mt-0.5">
+                        <span className="text-xs text-stone-400">發票</span>
+                        <span className="font-semibold text-stone-500 text-sm">NT${invoiceAmount.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
 
