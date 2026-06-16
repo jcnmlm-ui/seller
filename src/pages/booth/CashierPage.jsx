@@ -127,6 +127,7 @@ export default function CashierPage() {
           product_barcode: i.barcode,
           unit_price:      i.price,
           quantity:        i.qty,
+          stamp_amount:    i.stamp_amount ?? 0,
         })))
 
       if (itemsErr) throw new Error(itemsErr.message)
@@ -273,12 +274,27 @@ export default function CashierPage() {
                 清空清單
               </button>
               <div className="text-right">
-                <p className="text-xs text-stone-400">
+                <p className="text-xs text-stone-400 mb-1">
                   共 {cartItems.reduce((s, i) => s + i.qty, 0)} 件
                 </p>
-                <p className="font-black text-3xl text-red-500">
-                  NT${total.toLocaleString()}
-                </p>
+                {(() => {
+                  const stampTotal = cartItems.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.qty, 0)
+                  const invoiceAmount = total - stampTotal
+                  return (
+                    <div>
+                      <div className="flex items-center gap-2 justify-end">
+                        {stampTotal > 0 && <span className="text-xs text-stone-400">實收</span>}
+                        <span className="font-black text-3xl text-red-500">NT${total.toLocaleString()}</span>
+                      </div>
+                      {stampTotal > 0 && (
+                        <div className="flex items-center gap-2 justify-end mt-0.5">
+                          <span className="text-xs text-stone-400">發票</span>
+                          <span className="font-semibold text-stone-500">NT${invoiceAmount.toLocaleString()}</span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           )}
@@ -354,9 +370,18 @@ export default function CashierPage() {
               </button>
 
               {/* 來源標示 */}
-              <p className="text-center text-xs text-stone-400">
-                此筆為現場銷售，將直接記錄為「已送達」
-              </p>
+              {(() => {
+                const stampTotal = cartItems.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.qty, 0)
+                const invoiceAmount = total - stampTotal
+                return stampTotal > 0 ? (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center text-xs text-blue-700">
+                    <p>實收 <strong>NT${total.toLocaleString()}</strong> ／ 發票 <strong>NT${invoiceAmount.toLocaleString()}</strong></p>
+                    <p className="text-blue-400 mt-0.5">含郵票 NT${stampTotal.toLocaleString()}</p>
+                  </div>
+                ) : (
+                  <p className="text-center text-xs text-stone-400">此筆為現場銷售，將直接記錄為「已送達」</p>
+                )
+              })()}
             </div>
           )}
         </div>
