@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { STATUS_CONFIG, STORE } from '../../config/store'
 import { StatusBadge, toast } from '../../components/StatusBadge'
 import ShippingSlipA4 from '../../components/print/ShippingSlipA4'
-import WaybillA5 from '../../components/print/WaybillA5'
+import WaybillA5 from '../../components/print/WaybillA6'
 import {
   LogOut, Package, Search, Printer, ChevronDown, ChevronUp,
   RefreshCw, X, Truck, Edit2, CheckSquare, Square,
@@ -743,7 +743,7 @@ export default function OrderDashboard() {
           {printTarget && (
             printType === 'a4'
               ? <ShippingSlipA4 order={printTarget} items={orderItems[printTarget.id] ?? []} senderInfo={senderSettings} />
-              : <WaybillA5 order={printTarget} items={orderItems[printTarget.id] ?? []} senderInfo={senderSettings} />
+              : <WaybillA6 order={printTarget} items={orderItems[printTarget.id] ?? []} senderInfo={senderSettings} />
           )}
         </div>
       </div>
