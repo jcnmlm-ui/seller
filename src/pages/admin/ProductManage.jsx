@@ -190,12 +190,12 @@ export default function ProductManage() {
     try {
       const filename = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
       const { error: upErr } = await supabase.storage
-        .from('product-images')
+        .from('seller-product-images')
         .upload(filename, file, { cacheControl: '3600', upsert: false })
       if (upErr) throw upErr
 
       const { data: { publicUrl } } = supabase.storage
-        .from('product-images')
+        .from('seller-product-images')
         .getPublicUrl(filename)
 
       setForm(f => ({ ...f, image_url: publicUrl }))
