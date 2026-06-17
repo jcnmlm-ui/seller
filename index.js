@@ -116,243 +116,21 @@ const TEMPLATE_CONFIG = {
   },
 };
 
-// ─── 核心：HTML → PDF → 送印 ─────────────────────────────────
-async function printLabel(data, options = {}) {
-  const settings = loadSettings();
+// ─── 印表機數量快取 ──────────────────────────────────────────
+// 說明：pdf-to-printer 的 getPrinters() 在 Windows 上會在背後呼叫系統指令，
+// 若每次 /health 都呼叫一次，會在每次前端頁面載入時都讓終端機視窗閃一下。
+// 改成「啟動時查一次、之後每 10 分鐘背景重新整理一次」，/health 只讀取快取值。
+let cachedPrinterCount = 0;
 
-  // 判斷模板
-  const templateName = options.template || 'label';
-  const tplConfig = TEMPLATE_CONFIG[templateName] || TEMPLATE_CONFIG.label;
-  const templatePath = path.join(__dirname, 'templates', tplConfig.file);
-
-  // 狀態標籤
-  const STATUS_LABELS = {
-    pending:'待結帳', paid:'已付款', picking:'揀貨中',
-    packed:'已包裝', shipped:'已出貨', delivered:'已送達',
-  };
-  const PAYMENT_LABELS = {
-    cash:'現金', card:'刷卡', taiwan_pay:'台灣PAY',
-  };
-
-  // 讀取 HTML 模板，替換所有 {{欄位}}
-  let html = await fs.readFile(templatePath, 'utf-8');
-  html = html
-    .replace(/\{\{order_no\}\}/g,              data.order_no                                      || '')
-    .replace(/\{\{order_status\}\}/g,           STATUS_LABELS[data.status] || data.status          || '')
-    .replace(/\{\{payment_method\}\}/g,         PAYMENT_LABELS[data.payment_method]                || '')
-    .replace(/\{\{created_at\}\}/g,             data.created_at ? new Date(data.created_at).toLocaleString('zh-TW') : '')
-    .replace(/\{\{paid_at\}\}/g,                data.paid_at    ? new Date(data.paid_at).toLocaleString('zh-TW')    : '')
-    .replace(/\{\{receiver_name\}\}/g,          data.receiver_name                                 || '')
-    .replace(/\{\{receiver_phone\}\}/g,         data.receiver_phone                                || '')
-    .replace(/\{\{receiver_postal_code\}\}/g,   data.receiver_postal_code                          || '')
-    .replace(/\{\{receiver_address\}\}/g,       data.receiver_address                              || '')
-    .replace(/\{\{note\}\}/g,                   data.note                                          || '')
-    .replace(/\{\{sender_name\}\}/g,            data.sender_name    || settings.senderName)
-    .replace(/\{\{sender_phone\}\}/g,           data.sender_phone   || settings.senderPhone)
-    .replace(/\{\{sender_address\}\}/g,         data.sender_address || settings.senderAddress)
-    .replace(/\{\{order_url\}\}/g,              data.order_url                                     || '')
-    .replace(/\{\{items_html\}\}/g,             buildItemsHTML(data.items, templateName))
-    .replace(/\{\{total_amount\}\}/g,           data.total_amount ? Number(data.total_amount).toLocaleString() : '0')
-    .replace(/\{\{date\}\}/g,                   new Date().toLocaleString('zh-TW'));
-
-  // 啟動 Puppeteer
-  const chromePath = findChrome();
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    executablePath: chromePath || undefined,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
-
-  const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: 'networkidle0', timeout: 15000 });
-
-  const pdfPath = path.join(os.tmpdir(), `print_${Date.now()}.pdf`);
-
-  // 尺寸：A4 用固定值，標籤用 settings
-  const pdfWidth  = tplConfig.width  || settings.paperWidth;
-  const pdfHeight = tplConfig.height || settings.paperHeight;
-
-  await page.pdf({
-    path: pdfPath,
-    width:  pdfWidth,
-    height: pdfHeight,
-    printBackground: true,
-    margin: { top: '0', right: '0', bottom: '0', left: '0' },
-  });
-
-  await browser.close();
-
-  // 送至印表機（按模板選擇預設印表機，可被 options.printer 覆蓋）
-  const defaultForTemplate = settings[tplConfig.printer] || settings.defaultPrinter || undefined;
-  const printerName = options.printer || defaultForTemplate;
-  const printOptions = { silent: true, copies: options.copies || 1 };
-  if (printerName) printOptions.printer = printerName;
-
-  await print(pdfPath, printOptions);
-
-  setTimeout(() => fs.remove(pdfPath).catch(() => {}), 5000);
-  return true;
-}
-
-// ─── Middleware ───────────────────────────────────────────────
-app.use(express.json());
-app.use((req, res, next) => {
-  const settings = loadSettings();
-  const origins = settings.allowedOrigins || [];
-  cors({
-    origin: (origin, cb) => {
-      // 允許：無 origin（同源）、localhost 開頭、或在白名單內的 github.io
-      if (!origin || origin.startsWith('http://localhost') || origins.includes(origin)) {
-        return cb(null, true);
-      }
-      // 允許任何 github.io 子網域（讓後台 Web App 可以呼叫）
-      if (/^https:\/\/[^.]+\.github\.io$/.test(origin)) {
-        return cb(null, true);
-      }
-      cb(new Error('Not allowed by CORS'));
-    },
-    credentials: false,
-  })(req, res, next);
-});
-
-// ─── API 端點 ────────────────────────────────────────────────
-
-// 健康檢查：Web App 開啟時自動呼叫，確認服務是否啟動
-app.get('/health', async (req, res) => {
-  let printers = [];
-  try { printers = await getPrinters(); } catch {}
-  res.json({
-    ok: true,
-    version: '1.0.0',
-    printerCount: printers.length,
-  });
-});
-
-// 預覽模板：支援 ?template=label 或 ?template=shipping_slip_a4
-// 標籤：  http://127.0.0.1:3001/preview
-// A4單：  http://127.0.0.1:3001/preview?template=shipping_slip_a4
-app.get('/preview', async (req, res) => {
-  const settings = loadSettings();
-  const templateName = req.query.template || 'label';
-  const tplConfig    = TEMPLATE_CONFIG[templateName] || TEMPLATE_CONFIG.label;
-  const templatePath = path.join(__dirname, 'templates', tplConfig.file);
-
-  // 測試假資料
-  const data = {
-    order_no:             req.query.order_no || 'ORD-20260603-0001',
-    status:               'packed',
-    payment_method:       'cash',
-    created_at:           new Date().toISOString(),
-    paid_at:              new Date().toISOString(),
-    receiver_name:        req.query.name    || '王小明',
-    receiver_phone:       req.query.phone   || '0912-345-678',
-    receiver_postal_code: req.query.postal  || '800',
-    receiver_address:     req.query.address || '高雄市新興區中正三路177號3樓',
-    note:                 req.query.note    || '',
-    sender_name:          settings.senderName,
-    sender_phone:         settings.senderPhone,
-    sender_address:       settings.senderAddress,
-    order_url:            'http://127.0.0.1:3001/preview',
-    total_amount:         1350,
-    items: [
-      { product_name: '手作皮革錢包', quantity: 1, unit_price: 980 },
-      { product_name: '鑰匙扣',       quantity: 2, unit_price: 185 },
-    ],
-  };
-
-  const STATUS_LABELS  = { pending:'待結帳', paid:'已付款', picking:'揀貨中', packed:'已包裝', shipped:'已出貨', delivered:'已送達' };
-  const PAYMENT_LABELS = { cash:'現金', card:'刷卡', taiwan_pay:'台灣PAY' };
-
-  let html = await fs.readFile(templatePath, 'utf-8');
-  html = html
-    .replace(/\{\{order_no\}\}/g,              data.order_no)
-    .replace(/\{\{order_status\}\}/g,           STATUS_LABELS[data.status] || data.status || '')
-    .replace(/\{\{payment_method\}\}/g,         PAYMENT_LABELS[data.payment_method] || '')
-    .replace(/\{\{created_at\}\}/g,             new Date(data.created_at).toLocaleString('zh-TW'))
-    .replace(/\{\{paid_at\}\}/g,                new Date(data.paid_at).toLocaleString('zh-TW'))
-    .replace(/\{\{receiver_name\}\}/g,          data.receiver_name)
-    .replace(/\{\{receiver_phone\}\}/g,         data.receiver_phone)
-    .replace(/\{\{receiver_postal_code\}\}/g,   data.receiver_postal_code)
-    .replace(/\{\{receiver_address\}\}/g,       data.receiver_address)
-    .replace(/\{\{note\}\}/g,                   data.note)
-    .replace(/\{\{sender_name\}\}/g,            data.sender_name)
-    .replace(/\{\{sender_phone\}\}/g,           data.sender_phone)
-    .replace(/\{\{sender_address\}\}/g,         data.sender_address)
-    .replace(/\{\{order_url\}\}/g,              data.order_url)
-    .replace(/\{\{items_html\}\}/g,             buildItemsHTML(data.items, templateName))
-    .replace(/\{\{total_amount\}\}/g,           data.total_amount.toLocaleString())
-    .replace(/\{\{date\}\}/g,                   new Date().toLocaleString('zh-TW'));
-
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(html);
-});
-
-// 取得印表機清單
-app.get('/printers', async (req, res) => {
+async function refreshPrinterCount() {
   try {
     const printers = await getPrinters();
-    res.json({ printers });
+    cachedPrinterCount = printers.length;
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[查詢印表機數量失敗]', err.message);
+    // 失敗時保留上一次的數字，不要讓單次查詢失敗就把計數清成 0
   }
-});
-
-// 列印單筆訂單
-app.post('/print', async (req, res) => {
-  try {
-    const { printer, data, copies } = req.body;
-    if (!data || !data.order_no) {
-      return res.status(400).json({ error: '缺少必要欄位：data.order_no' });
-    }
-    await printLabel(data, { printer, copies });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[列印失敗]', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 批量列印（多筆訂單）
-app.post('/print/batch', async (req, res) => {
-  try {
-    const { orders, printer } = req.body;
-    if (!Array.isArray(orders) || orders.length === 0) {
-      return res.status(400).json({ error: '請傳入 orders 陣列' });
-    }
-    let success = 0;
-    const errors = [];
-
-    for (const data of orders) {
-      try {
-        await printLabel(data, { printer });
-        success++;
-      } catch (err) {
-        errors.push({ order_no: data.order_no, error: err.message });
-      }
-    }
-
-    res.json({ success: true, printed: success, failed: errors.length, errors });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 讀取設定
-app.get('/settings', (req, res) => {
-  res.json(loadSettings());
-});
-
-// 儲存設定
-app.post('/settings', (req, res) => {
-  try {
-    const current = loadSettings();
-    const updated = { ...current, ...req.body };
-    saveSettings(updated);
-    res.json({ success: true, settings: updated });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+}
 
 // ─── 核心：HTML → PDF → 送印 ─────────────────────────────────
 async function printLabel(data, options = {}) {
@@ -456,13 +234,12 @@ app.use((req, res, next) => {
 // ─── API 端點 ────────────────────────────────────────────────
 
 // 健康檢查：Web App 開啟時自動呼叫，確認服務是否啟動
-app.get('/health', async (req, res) => {
-  let printers = [];
-  try { printers = await getPrinters(); } catch {}
+// 注意：這裡只讀取快取的印表機數量，不會每次都觸發系統指令查詢
+app.get('/health', (req, res) => {
   res.json({
     ok: true,
     version: '1.0.0',
-    printerCount: printers.length,
+    printerCount: cachedPrinterCount,
   });
 });
 
@@ -525,10 +302,11 @@ app.get('/preview', async (req, res) => {
   res.send(html);
 });
 
-// 取得印表機清單
+// 取得印表機清單（即時查詢，這裡保留原樣，因為使用頻率低，不是造成閃視窗的主因）
 app.get('/printers', async (req, res) => {
   try {
     const printers = await getPrinters();
+    cachedPrinterCount = printers.length; // 順便更新快取
     res.json({ printers });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -599,4 +377,9 @@ app.listen(PORT, HOST, () => {
   console.log(`   地址：http://${HOST}:${PORT}`);
   console.log(`   按 Ctrl+C 停止`);
   console.log('');
+
+  // 啟動時先查一次印表機數量，之後每 10 分鐘背景重新整理一次，
+  // /health 平時只讀取這個快取值，不會每次頁面載入都觸發系統指令。
+  refreshPrinterCount();
+  setInterval(refreshPrinterCount, 10 * 60 * 1000);
 });
