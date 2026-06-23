@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Search, MapPin, X, Loader2, Package } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useCart } from '../../context/CartContext'
 import { CITIES, getDistricts, getPostalCode } from '../../data/postal_codes'
+
+// goibox.tw 的 i 郵箱查詢 Edge Function
+const GOIBOX_API_URL = 'https://vhryiktpxidehcamxcek.supabase.co/functions/v1/search-ibox'
+const GOIBOX_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZocnlpa3RweGlkZWhjYW14Y2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1OTYyODQsImV4cCI6MjA5NTE3MjI4NH0.7Z1drPMsqGPYDaIS8qLaRALIapnOTahxPMmKnEi_KJA'
 
 export default function Checkout() {
   const { items, dispatch, total, stampTotal, invoiceTotal } = useCart()
@@ -14,6 +18,12 @@ export default function Checkout() {
   })
   const [loading, setLoading]   = useState(false)
   const [errors, setErrors]     = useState({})
+
+  // ── i 郵箱查詢狀態 ──────────────────────────────────────
+  const [iboxLoading, setIboxLoading] = useState(false)
+  const [iboxResults, setIboxResults] = useState(null)   // 查詢結果陣列
+  const [iboxError, setIboxError]     = useState('')
+  const [selectedIbox, setSelectedIbox] = useState(null) // 被打勾選中的 i 郵箱
 
   const postalPrefix = getPostalCode(form.city, form.district)
   const postalCode   = form.postal_suffix
@@ -27,6 +37,71 @@ export default function Checkout() {
     if (m && l) return `手機:${m} / 市話:${l}`
     if (m) return m
     return `市話:${l}`
+  }
+
+  // ── 查詢附近 i 郵箱 ──────────────────────────────────────
+  async function handleSearchIbox() {
+    if (!form.city || !form.district || !form.detail.trim()) {
+      setIboxError('請先填寫完整地址（縣市、鄉鎮、詳細地址）後再查詢')
+      return
+    }
+    setIboxLoading(true)
+    setIboxError('')
+    setIboxResults(null)
+
+    try {
+      const res = await fetch(GOIBOX_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GOIBOX_ANON_KEY}`,
+        },
+        body: JSON.stringify({ inputData: fullAddress, dims: null }),
+      })
+      const data = await res.json()
+
+      if (data.status !== 'success' || !data.data?.length) {
+        throw new Error(data.message || '查無附近的 i 郵箱')
+      }
+      setIboxResults(data.data)
+    } catch (err) {
+      setIboxError(err.message || '查詢失敗，請稍後再試')
+    }
+    setIboxLoading(false)
+  }
+
+  // ── 選擇 / 取消選擇 i 郵箱 ──────────────────────────────
+  function selectIbox(box) {
+    if (selectedIbox?.id === box.id) {
+      // 再次點擊同一個 = 取消選擇
+      setSelectedIbox(null)
+    } else {
+      setSelectedIbox(box)
+    }
+  }
+
+  function clearIboxSelection() {
+    setSelectedIbox(null)
+    setIboxResults(null)
+    setIboxError('')
+  }
+
+  // ── 可用空格摘要（取目前還有空位的最大格型）───────────────
+  function getAvailableSummary(boxes) {
+    const sizeLabel = { '140x170':'小', '180x220':'小', '340x110':'中', '340x120':'中',
+                        '340x170':'中', '340x200':'中', '340x220':'中', '340x240':'大',
+                        '340x270':'大', '340x310':'大' }
+    const available = []
+    for (const [size, val] of Object.entries(boxes ?? {})) {
+      const [used, totalCount] = String(val).split('/').map(Number)
+      const remain = totalCount - used
+      if (remain > 0) available.push({ label: sizeLabel[size] || '格', remain })
+    }
+    if (available.length === 0) return '目前無空格'
+    // 合併同標籤
+    const merged = {}
+    available.forEach(a => { merged[a.label] = (merged[a.label] || 0) + a.remain })
+    return Object.entries(merged).map(([label, count]) => `${label}格 ${count}`).join('・')
   }
 
   function validate() {
@@ -47,9 +122,12 @@ export default function Checkout() {
     if (!form.mobile.trim() && !form.landline.trim())
       e.phone_required = '手機或市話至少需填寫一個'
 
-    if (!form.city)           e.city    = '請選擇縣市'
-    if (!form.district)       e.district= '請選擇鄉鎮市區'
-    if (!form.detail.trim())  e.detail  = '請填寫詳細地址'
+    // 若選了 i 郵箱，跳過縣市/鄉鎮/詳細地址檢查（已用 i 郵箱地址）
+    if (!selectedIbox) {
+      if (!form.city)           e.city    = '請選擇縣市'
+      if (!form.district)       e.district= '請選擇鄉鎮市區'
+      if (!form.detail.trim())  e.detail  = '請填寫詳細地址'
+    }
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -64,15 +142,22 @@ export default function Checkout() {
       })
       if (stockErr) throw new Error(stockErr.message)
 
+      // 若選擇了 i 郵箱，用 i 郵箱地址；否則用使用者填寫的地址
+      const finalAddress    = selectedIbox ? selectedIbox.address : fullAddress
+      const finalPostalCode = selectedIbox ? selectedIbox.zipcode : postalCode
+      const finalNote = selectedIbox
+        ? `${form.note.trim() ? form.note.trim() + '　' : ''}【寄至 i 郵箱：${selectedIbox.name}】`
+        : (form.note.trim() || null)
+
       const { data: order, error: orderErr } = await supabase
         .from('orders')
         .insert({
           order_no:             '',
           receiver_name:        form.name.trim(),
           receiver_phone:       buildPhone(),
-          receiver_postal_code: postalCode,
-          receiver_address:     fullAddress,
-          note:                 form.note.trim() || null,
+          receiver_postal_code: finalPostalCode,
+          receiver_address:     finalAddress,
+          note:                 finalNote,
           total_amount:         total,
           status:               'pending',
         })
@@ -242,72 +327,154 @@ export default function Checkout() {
             </div>
           </div>
 
-          {/* 縣市 + 鄉鎮市區 */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">縣市</label>
-              <select className={`input bg-white ${errors.city ? 'border-red-400' : ''}`}
-                value={form.city}
-                onChange={e => {
-                  setForm(f => ({ ...f, city: e.target.value, district: '' }))
-                  setErrors(e2 => ({ ...e2, city: '', district: '' }))
-                }}>
-                <option value="">請選擇縣市</option>
-                {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              {errors.city && <p className="text-red-500 text-xs mt-1">{errors.city}</p>}
-            </div>
-            <div>
-              <label className="label">鄉鎮市區</label>
-              <select className={`input bg-white ${errors.district ? 'border-red-400' : ''}`}
-                value={form.district}
-                disabled={!form.city}
-                onChange={e => {
-                  setForm(f => ({ ...f, district: e.target.value }))
-                  setErrors(e2 => ({ ...e2, district: '' }))
-                }}>
-                <option value="">請選擇區域</option>
-                {getDistricts(form.city).map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              {errors.district && <p className="text-red-500 text-xs mt-1">{errors.district}</p>}
-            </div>
-          </div>
-
-          {/* 郵遞區號（自動帶出） */}
-          {form.district && (
-            <div className="bg-stone-50 rounded-xl p-3 flex items-center gap-3">
-              <div>
-                <p className="text-xs text-stone-400 mb-1">郵遞區號</p>
-                <div className="flex items-center gap-1.5">
-                  <div className="bg-white border border-stone-300 rounded-lg px-3 py-1.5 font-mono font-bold text-stone-900 text-lg w-16 text-center">
-                    {postalPrefix}
-                  </div>
-                  <span className="text-stone-400 font-bold">-</span>
-                  <input type="text" inputMode="numeric" maxLength={3}
-                    className="input font-mono font-bold text-lg text-center w-16 py-1.5"
-                    placeholder="___"
-                    value={form.postal_suffix}
-                    onChange={e => setForm(f => ({ ...f, postal_suffix: e.target.value.replace(/\D/g,'').slice(0,3) }))} />
+          {/* 縣市 + 鄉鎮市區（選了 i 郵箱後鎖定隱藏，避免混淆）*/}
+          {!selectedIbox && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">縣市</label>
+                  <select className={`input bg-white ${errors.city ? 'border-red-400' : ''}`}
+                    value={form.city}
+                    onChange={e => {
+                      setForm(f => ({ ...f, city: e.target.value, district: '' }))
+                      setErrors(e2 => ({ ...e2, city: '', district: '' }))
+                    }}>
+                    <option value="">請選擇縣市</option>
+                    {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  {errors.city && <p className="text-red-500 text-xs mt-1">{errors.city}</p>}
+                </div>
+                <div>
+                  <label className="label">鄉鎮市區</label>
+                  <select className={`input bg-white ${errors.district ? 'border-red-400' : ''}`}
+                    value={form.district}
+                    disabled={!form.city}
+                    onChange={e => {
+                      setForm(f => ({ ...f, district: e.target.value }))
+                      setErrors(e2 => ({ ...e2, district: '' }))
+                    }}>
+                    <option value="">請選擇區域</option>
+                    {getDistricts(form.city).map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                  {errors.district && <p className="text-red-500 text-xs mt-1">{errors.district}</p>}
                 </div>
               </div>
-              <p className="text-xs text-stone-400 flex-1 leading-relaxed">
-                前3碼已自動帶入<br/>後3碼選填（不填也可寄送）
-              </p>
-            </div>
+
+              {/* 郵遞區號（自動帶出） */}
+              {form.district && (
+                <div className="bg-stone-50 rounded-xl p-3 flex items-center gap-3">
+                  <div>
+                    <p className="text-xs text-stone-400 mb-1">郵遞區號</p>
+                    <div className="flex items-center gap-1.5">
+                      <div className="bg-white border border-stone-300 rounded-lg px-3 py-1.5 font-mono font-bold text-stone-900 text-lg w-16 text-center">
+                        {postalPrefix}
+                      </div>
+                      <span className="text-stone-400 font-bold">-</span>
+                      <input type="text" inputMode="numeric" maxLength={3}
+                        className="input font-mono font-bold text-lg text-center w-16 py-1.5"
+                        placeholder="___"
+                        value={form.postal_suffix}
+                        onChange={e => setForm(f => ({ ...f, postal_suffix: e.target.value.replace(/\D/g,'').slice(0,3) }))} />
+                    </div>
+                  </div>
+                  <p className="text-xs text-stone-400 flex-1 leading-relaxed">
+                    前3碼已自動帶入<br/>後3碼選填（不填也可寄送）
+                  </p>
+                </div>
+              )}
+
+              {/* 詳細地址 */}
+              <div>
+                <label className="label">詳細地址</label>
+                <input type="text" className={`input ${errors.detail ? 'border-red-400' : ''}`}
+                  placeholder="中正三路177號3樓"
+                  value={form.detail}
+                  onChange={e => { setForm(f=>({...f,detail:e.target.value})); setErrors(e2=>({...e2,detail:''})) }} />
+                {errors.detail && <p className="text-red-500 text-xs mt-1">{errors.detail}</p>}
+                {form.city && form.district && form.detail && (
+                  <p className="text-xs text-stone-400 mt-1.5 bg-stone-50 px-3 py-1.5 rounded-lg">
+                    📍 {fullAddress}
+                  </p>
+                )}
+              </div>
+            </>
           )}
 
-          {/* 詳細地址 */}
-          <div>
-            <label className="label">詳細地址</label>
-            <input type="text" className={`input ${errors.detail ? 'border-red-400' : ''}`}
-              placeholder="中正三路177號3樓"
-              value={form.detail}
-              onChange={e => { setForm(f=>({...f,detail:e.target.value})); setErrors(e2=>({...e2,detail:''})) }} />
-            {errors.detail && <p className="text-red-500 text-xs mt-1">{errors.detail}</p>}
-            {form.city && form.district && form.detail && (
-              <p className="text-xs text-stone-400 mt-1.5 bg-stone-50 px-3 py-1.5 rounded-lg">
-                📍 {fullAddress}
-              </p>
+          {/* ── i 郵箱查詢區塊 ── */}
+          <div className="border border-dashed border-stone-300 rounded-xl p-3">
+            {!selectedIbox ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleSearchIbox}
+                  disabled={iboxLoading}
+                  className="w-full flex items-center justify-center gap-2 text-sm font-semibold text-stone-600 hover:text-red-500 transition-colors py-1"
+                >
+                  {iboxLoading ? (
+                    <><Loader2 size={15} className="animate-spin" /> 查詢中…</>
+                  ) : (
+                    <><Search size={15} /> 改寄到附近的 i 郵箱（自助取貨）</>
+                  )}
+                </button>
+
+                {iboxError && (
+                  <p className="text-red-500 text-xs mt-2 text-center">{iboxError}</p>
+                )}
+
+                {/* 查詢結果列表 */}
+                {iboxResults && (
+                  <div className="mt-3 space-y-2 max-h-72 overflow-y-auto">
+                    {iboxResults.map(box => (
+                      <button
+                        key={box.id}
+                        type="button"
+                        onClick={() => selectIbox(box)}
+                        className="w-full text-left bg-stone-50 hover:bg-red-50 border border-stone-200 hover:border-red-300 rounded-xl p-3 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <Package size={13} className="text-stone-400 flex-shrink-0" />
+                              <span className="font-bold text-stone-900 text-sm truncate">{box.name}</span>
+                            </div>
+                            <p className="text-xs text-stone-500 mt-0.5">{box.address}</p>
+                            <p className="text-xs text-stone-400 mt-1">{getAvailableSummary(box.boxes)}</p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-sm font-bold text-red-500">{box.distanceText}</p>
+                            <p className="text-xs text-stone-400">機車 {box.duration}</p>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              /* 已選擇的 i 郵箱卡片 */
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <MapPin size={14} className="text-red-500 flex-shrink-0" />
+                      <span className="font-bold text-red-700 text-sm">已選擇 i 郵箱寄送</span>
+                    </div>
+                    <p className="font-bold text-stone-900 text-sm">{selectedIbox.name}</p>
+                    <p className="text-xs text-stone-500 mt-0.5">{selectedIbox.address}</p>
+                    <p className="text-xs text-stone-400 mt-1">
+                      {selectedIbox.distanceText} · 機車 {selectedIbox.duration} · {getAvailableSummary(selectedIbox.boxes)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearIboxSelection}
+                    className="flex-shrink-0 text-stone-400 hover:text-red-500 transition-colors p-1"
+                    title="取消選擇，改回填寫地址"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 
