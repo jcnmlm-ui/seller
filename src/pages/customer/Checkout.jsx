@@ -142,12 +142,10 @@ export default function Checkout() {
       })
       if (stockErr) throw new Error(stockErr.message)
 
-      // 若選擇了 i 郵箱，用 i 郵箱地址；否則用使用者填寫的地址
-      const finalAddress    = selectedIbox ? selectedIbox.address : fullAddress
+      // 若選擇了 i 郵箱，收件地址改顯示 i 郵箱名稱；備註保持給客人自己填寫，不混入系統訊息
+      const finalAddress    = selectedIbox ? selectedIbox.name : fullAddress
       const finalPostalCode = selectedIbox ? selectedIbox.zipcode : postalCode
-      const finalNote = selectedIbox
-        ? `${form.note.trim() ? form.note.trim() + '　' : ''}【寄至 i 郵箱：${selectedIbox.name}】`
-        : (form.note.trim() || null)
+      const finalNote       = form.note.trim() || null
 
       const { data: order, error: orderErr } = await supabase
         .from('orders')
