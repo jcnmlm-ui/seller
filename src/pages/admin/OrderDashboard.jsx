@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { STATUS_CONFIG, STORE } from '../../config/store'
 import { StatusBadge, toast } from '../../components/StatusBadge'
 import ShippingSlipA4 from '../../components/print/ShippingSlipA4'
-import WaybillA5 from '../../components/print/WaybillA6'
+import WaybillA6 from '../../components/print/WaybillA6'
 import {
   LogOut, Package, Search, Printer, ChevronDown, ChevronUp,
   RefreshCw, X, Truck, Edit2, CheckSquare, Square,
