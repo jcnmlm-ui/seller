@@ -13,6 +13,22 @@ export default function WaybillA6({ order, items, senderInfo }) {
   const baseUrl    = window.location.origin + window.location.pathname
   const orderUrl   = `${baseUrl}#/order/${order.order_no}`
 
+  // 解析收件人電話：支援 "手機:xxx / 市話:xxx"、純手機、純市話（含分機 #409 等）
+  function parsePhones(raw) {
+    if (!raw) return { mobile: '', landline: '' }
+    if (raw.includes('/')) {
+      const [a, b] = raw.split('/')
+      const mobile   = a.replace(/手機[：:]\s*/g, '').trim()
+      const landline = b ? b.replace(/市話[：:]\s*/g, '').trim() : ''
+      return { mobile, landline }
+    }
+    if (raw.includes('市話')) {
+      return { mobile: '', landline: raw.replace(/市話[：:]\s*/g, '').trim() }
+    }
+    return { mobile: raw.trim(), landline: '' }
+  }
+  const { mobile, landline } = parsePhones(order.receiver_phone)
+
   return (
     <div style={{
       fontFamily: 'Noto Sans TC, sans-serif',
@@ -31,7 +47,7 @@ export default function WaybillA6({ order, items, senderInfo }) {
         padding: '3mm 4mm',
         lineHeight: 1.5,
       }}>
-        <div style={{ fontSize: '9px', color: '#888', letterSpacing: '2px', marginBottom: '2px' }}>
+        <div style={{ fontSize: '10px', color: '#888', letterSpacing: '2px', marginBottom: '2px' }}>
           寄　件　人
         </div>
         <div style={{ fontSize: '11px', fontWeight: '700' }}>{senderName}</div>
@@ -51,7 +67,7 @@ export default function WaybillA6({ order, items, senderInfo }) {
         display: 'flex',
         flexDirection: 'column',
       }}>
-        <div style={{ fontSize: '9px', color: '#888', letterSpacing: '2px', marginBottom: '3mm' }}>
+        <div style={{ fontSize: '10px', color: '#888', letterSpacing: '2px', marginBottom: '3mm' }}>
           收　件　人
         </div>
 
@@ -60,14 +76,24 @@ export default function WaybillA6({ order, items, senderInfo }) {
             <div style={{ fontWeight: '900', fontSize: '28px', lineHeight: 1.15, marginBottom: '1mm' }}>
               {order.receiver_name}
             </div>
-            <div style={{ fontWeight: '700', fontSize: '18px', letterSpacing: '1px', marginBottom: '2mm' }}>
-              {order.receiver_phone}
-            </div>
+
+            {/* 手機/市話分行顯示，市話長度不限（可含分機）*/}
+            {mobile && (
+              <div style={{ fontWeight: '700', fontSize: '18px', letterSpacing: '1px', marginBottom: '1mm' }}>
+                {mobile}
+              </div>
+            )}
+            {landline && (
+              <div style={{ fontWeight: '700', fontSize: '18px', letterSpacing: '1px', marginBottom: '1mm', wordBreak: 'break-all' }}>
+                {landline}
+              </div>
+            )}
+
             {postalCode && (
               <div style={{
                 fontWeight: '900', fontSize: '26px',
                 fontFamily: 'monospace', letterSpacing: '5px',
-                color: '#1a1a2e', lineHeight: 1,
+                color: '#1a1a2e', lineHeight: 1, marginTop: '1mm',
               }}>
                 {postalCode}
               </div>
@@ -75,7 +101,7 @@ export default function WaybillA6({ order, items, senderInfo }) {
           </div>
           <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5mm' }}>
             <QRCodeSVG value={orderUrl} size={68} level="M" />
-            <div style={{ fontSize: '8px', fontFamily: 'monospace', color: '#555', textAlign: 'center', lineHeight: 1.3 }}>
+            <div style={{ fontSize: '10px', fontFamily: 'monospace', color: '#555', textAlign: 'center', lineHeight: 1.3 }}>
               掃碼查詢訂單<br/>{order.order_no}
             </div>
           </div>
