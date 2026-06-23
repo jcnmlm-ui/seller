@@ -2,7 +2,7 @@
 import { QRCodeSVG } from 'qrcode.react'
 import { STORE } from '../../config/store'
 
-export default function WaybillA5({ order, items, senderInfo }) {
+export default function WaybillA6({ order, items, senderInfo }) {
   // senderInfo 優先，fallback 到 store.js
   const senderName    = senderInfo?.sender_name        || STORE.name
   const senderPhone   = senderInfo?.sender_phone       || STORE.phone
@@ -82,7 +82,7 @@ export default function WaybillA5({ order, items, senderInfo }) {
         </div>
 
         <div style={{
-          borderTop: '1px dashed #ccc', paddingTop: '2mm',
+          borderTop: '0.6mm dashed #555', paddingTop: '2mm',
           fontSize: '22px', fontWeight: '700', lineHeight: 1.5, wordBreak: 'break-all',
         }}>
           {order.receiver_address}
