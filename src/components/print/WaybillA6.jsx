@@ -9,9 +9,18 @@ export default function WaybillA6({ order, items, senderInfo }) {
   const senderAddress = senderInfo?.sender_address     || STORE.address
   const senderPostal  = senderInfo?.sender_postal_code || ''
 
-  const postalCode = order.receiver_postal_code || ''
-  const baseUrl    = window.location.origin + window.location.pathname
-  const orderUrl   = `${baseUrl}#/order/${order.order_no}`
+  // 郵遞區號格式化：純數字（如 800801）自動補上 "-"（800-801）；已含 "-" 則不重複處理
+  function formatPostal(raw) {
+    if (!raw) return ''
+    if (raw.includes('-')) return raw
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length === 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`
+    return raw
+  }
+  const postalCode = formatPostal(order.receiver_postal_code)
+
+  const baseUrl  = window.location.origin + window.location.pathname
+  const orderUrl = `${baseUrl}#/order/${order.order_no}`
 
   // 解析收件人電話：支援 "手機:xxx / 市話:xxx"、純手機、純市話（含分機 #409 等）
   function parsePhones(raw) {
@@ -73,27 +82,28 @@ export default function WaybillA6({ order, items, senderInfo }) {
 
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '3mm', marginBottom: '2mm' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: '900', fontSize: '28px', lineHeight: 1.15, marginBottom: '1mm' }}>
+            {/* 收件人姓名：縮小 2px（28px → 26px）*/}
+            <div style={{ fontWeight: '900', fontSize: '26px', lineHeight: 1.15, marginBottom: '1.5mm' }}>
               {order.receiver_name}
             </div>
 
-            {/* 手機/市話分行顯示，市話長度不限（可含分機）*/}
+            {/* 手機/市話：縮小 1px（18px → 17px），前面加標籤，行距更密集 */}
             {mobile && (
-              <div style={{ fontWeight: '700', fontSize: '18px', letterSpacing: '1px', marginBottom: '1mm' }}>
-                {mobile}
+              <div style={{ fontWeight: '700', fontSize: '17px', letterSpacing: '0.5px', lineHeight: 1.3 }}>
+                手機：{mobile}
               </div>
             )}
             {landline && (
-              <div style={{ fontWeight: '700', fontSize: '18px', letterSpacing: '1px', marginBottom: '1mm', wordBreak: 'break-all' }}>
-                {landline}
+              <div style={{ fontWeight: '700', fontSize: '17px', letterSpacing: '0.5px', lineHeight: 1.3, wordBreak: 'break-all' }}>
+                市話：{landline}
               </div>
             )}
 
             {postalCode && (
               <div style={{
                 fontWeight: '900', fontSize: '26px',
-                fontFamily: 'monospace', letterSpacing: '5px',
-                color: '#1a1a2e', lineHeight: 1, marginTop: '1mm',
+                fontFamily: 'monospace', letterSpacing: '4px',
+                color: '#1a1a2e', lineHeight: 1, marginTop: '1.5mm',
               }}>
                 {postalCode}
               </div>
@@ -107,8 +117,8 @@ export default function WaybillA6({ order, items, senderInfo }) {
           </div>
         </div>
 
+        {/* 地址（虛線移到地址跟備註之間，這裡不再有上方虛線） */}
         <div style={{
-          borderTop: '0.6mm dashed #555', paddingTop: '2mm',
           fontSize: '22px', fontWeight: '700', lineHeight: 1.5, wordBreak: 'break-all',
         }}>
           {order.receiver_address}
@@ -116,10 +126,15 @@ export default function WaybillA6({ order, items, senderInfo }) {
 
         {order.note && (
           <div style={{
-            marginTop: '2mm', padding: '1.5mm 2.5mm',
-            background: '#fffde7', borderRadius: '3px', fontSize: '12px',
+            marginTop: '2mm', paddingTop: '2mm',
+            borderTop: '0.6mm dashed #555',
           }}>
-            備註：{order.note}
+            <div style={{
+              padding: '1.5mm 2.5mm',
+              background: '#fffde7', borderRadius: '3px', fontSize: '12px',
+            }}>
+              備註：{order.note}
+            </div>
           </div>
         )}
 
