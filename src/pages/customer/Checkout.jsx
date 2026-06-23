@@ -113,10 +113,10 @@ export default function Checkout() {
     if (form.mobile && !/^09\d{8}$/.test(cleanMobile))
       e.mobile = '手機號碼格式不正確（09開頭10碼）'
 
-    // 市話格式（區碼+號碼，去除符號後8-10碼，開頭0不是09）
+    // 市話格式（區碼+號碼，主號至少6碼，後面可接 #分機，分機長度不限）
     const cleanLand = form.landline.replace(/[-\s]/g, '')
-    if (form.landline && !/^0[2-8]\d{6,8}$/.test(cleanLand))
-      e.landline = '市話格式不正確（含區碼，如 07-2614171）'
+    if (form.landline && !/^0[2-8]\d{6,8}(#\d+)?$/.test(cleanLand))
+      e.landline = '市話格式不正確（含區碼，如 07-2614171，分機請用#分隔，如 07-2614171#409）'
 
     // 至少填一個
     if (!form.mobile.trim() && !form.landline.trim())
@@ -316,7 +316,7 @@ export default function Checkout() {
                 <div className="flex-1">
                   <input type="tel"
                     className={`input text-sm py-2.5 ${errors.landline ? 'border-red-400' : ''}`}
-                    placeholder="07-2614171（選填，含區碼）"
+                    placeholder="07-2614171#409（選填，含區碼）"
                     value={form.landline}
                     onChange={e => { setForm(f=>({...f,landline:e.target.value})); setErrors(e2=>({...e2,landline:'',phone_required:''})) }} />
                   {errors.landline && <p className="text-red-500 text-xs mt-1">{errors.landline}</p>}
