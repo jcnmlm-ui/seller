@@ -1,15 +1,31 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { STORE } from '../config/store'
+
+const REMEMBER_KEY = 'booth_remember_login'
 
 export default function LoginPage() {
   const { session, signIn, loading } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [remember, setRemember] = useState(false)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  // 載入時讀取已記住的帳密
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(REMEMBER_KEY)
+      if (saved) {
+        const { email: savedEmail, password: savedPassword } = JSON.parse(saved)
+        setEmail(savedEmail || '')
+        setPassword(savedPassword || '')
+        setRemember(true)
+      }
+    } catch {}
+  }, [])
 
   if (loading) return null
   if (session) return <Navigate to="/admin" replace />
@@ -22,6 +38,12 @@ export default function LoginPage() {
     if (err) {
       setError('帳號或密碼錯誤，請重試')
     } else {
+      // 記住密碼：勾選則儲存，取消勾選則清除
+      if (remember) {
+        localStorage.setItem(REMEMBER_KEY, JSON.stringify({ email, password }))
+      } else {
+        localStorage.removeItem(REMEMBER_KEY)
+      }
       navigate('/admin')
     }
     setSubmitting(false)
@@ -60,6 +82,17 @@ export default function LoginPage() {
               required
             />
           </div>
+
+          {/* 記住密碼 */}
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={e => setRemember(e.target.checked)}
+              className="w-4 h-4 rounded accent-red-500"
+            />
+            <span className="text-sm text-stone-600">記住帳號密碼</span>
+          </label>
 
           {error && (
             <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-xl border border-red-200">
