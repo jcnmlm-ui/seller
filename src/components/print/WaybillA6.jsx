@@ -19,6 +19,16 @@ export default function WaybillA6({ order, items, senderInfo }) {
   }
   const postalCode = formatPostal(order.receiver_postal_code)
 
+  // 從 i 郵箱完整地址抽取「縣市/鄉鎮市區」，用於郵遞區號旁標註
+  // 例：高雄市新興區中正三路179號 → 高雄市/新興區
+  function extractDistrict(fullAddress) {
+    if (!fullAddress) return ''
+    const match = fullAddress.match(/^(.{2,3}[縣市])(.{1,3}[市區鄉鎮])/)
+    if (!match) return ''
+    return `${match[1]}/${match[2]}`
+  }
+  const districtLabel = extractDistrict(order.ibox_full_address)
+
   const baseUrl  = window.location.origin + window.location.pathname
   const orderUrl = `${baseUrl}#/order/${order.order_no}`
 
@@ -101,11 +111,21 @@ export default function WaybillA6({ order, items, senderInfo }) {
 
             {postalCode && (
               <div style={{
-                fontWeight: '900', fontSize: '26px',
-                fontFamily: 'monospace', letterSpacing: '4px',
-                color: '#1a1a2e', lineHeight: 1, marginTop: '1.5mm',
+                display: 'flex', alignItems: 'baseline', gap: '1.5mm',
+                marginTop: '1.5mm',
               }}>
-                {postalCode}
+                <div style={{
+                  fontWeight: '900', fontSize: '26px',
+                  fontFamily: 'monospace', letterSpacing: '4px',
+                  color: '#1a1a2e', lineHeight: 1,
+                }}>
+                  {postalCode}
+                </div>
+                {districtLabel && (
+                  <div style={{ fontSize: '10px', color: '#666', fontWeight: '400' }}>
+                    【{districtLabel}】
+                  </div>
+                )}
               </div>
             )}
           </div>
