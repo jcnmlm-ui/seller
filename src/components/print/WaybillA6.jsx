@@ -112,10 +112,10 @@ export default function WaybillA6({ order, items, senderInfo }) {
             {postalCode && (
               <div style={{
                 display: 'flex', alignItems: 'baseline', gap: '1.5mm',
-                marginTop: '1.5mm',
+                marginTop: '1.5mm', whiteSpace: 'nowrap',
               }}>
                 <div style={{
-                  fontWeight: '900', fontSize: '26px',
+                  fontWeight: '900', fontSize: '23px',
                   fontFamily: 'monospace', letterSpacing: '4px',
                   color: '#1a1a2e', lineHeight: 1,
                 }}>
@@ -123,7 +123,7 @@ export default function WaybillA6({ order, items, senderInfo }) {
                 </div>
                 {districtLabel && (
                   <div style={{ fontSize: '10px', color: '#666', fontWeight: '400' }}>
-                    【{districtLabel}】
+                    {districtLabel}
                   </div>
                 )}
               </div>
