@@ -146,6 +146,8 @@ export default function Checkout() {
       const finalAddress    = selectedIbox ? selectedIbox.name : fullAddress
       const finalPostalCode = selectedIbox ? selectedIbox.zipcode : postalCode
       const finalNote       = form.note.trim() || null
+      // i 郵箱完整地址（含縣市鄉鎮），用於列印時標註所在區域；非 i 郵箱訂單為 null
+      const iboxFullAddress  = selectedIbox ? selectedIbox.address : null
 
       const { data: order, error: orderErr } = await supabase
         .from('orders')
@@ -158,6 +160,7 @@ export default function Checkout() {
           note:                 finalNote,
           total_amount:         total,
           status:               'pending',
+          ibox_full_address:    iboxFullAddress,
         })
         .select('id, order_no')
         .single()
