@@ -97,14 +97,14 @@ export default function WaybillA6({ order, items, senderInfo }) {
               {order.receiver_name}
             </div>
 
-            {/* 手機/市話：縮小 1px（18px → 17px），前面加標籤，行距更密集 */}
+            {/* 手機/市話：縮小 3px（17px → 14px），讓市話含區碼+分機可容納單行不換行 */}
             {mobile && (
-              <div style={{ fontWeight: '700', fontSize: '17px', letterSpacing: '0.5px', lineHeight: 1.3 }}>
+              <div style={{ fontWeight: '700', fontSize: '14px', letterSpacing: '0.2px', lineHeight: 1.3, whiteSpace: 'nowrap' }}>
                 手機：{mobile}
               </div>
             )}
             {landline && (
-              <div style={{ fontWeight: '700', fontSize: '17px', letterSpacing: '0.5px', lineHeight: 1.3, wordBreak: 'break-all' }}>
+              <div style={{ fontWeight: '700', fontSize: '14px', letterSpacing: '0.2px', lineHeight: 1.3, whiteSpace: 'nowrap' }}>
                 市話：{landline}
               </div>
             )}
