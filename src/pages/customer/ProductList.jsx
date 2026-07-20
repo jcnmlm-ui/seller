@@ -4,6 +4,7 @@ import { ShoppingCart, Search, Package, X, ChevronDown, ChevronUp } from 'lucide
 import { supabase } from '../../lib/supabase'
 import { useCart } from '../../context/CartContext'
 import { STORE } from '../../config/store'
+import PromotionBanner from '../../components/PromotionBanner'
 
 // ── 個資蒐集聲明 Modal ────────────────────────────────────
 function PrivacyModal({ onAccept }) {
@@ -201,6 +202,11 @@ export default function ProductList() {
               onChange={e => setSearch(e.target.value)}
             />
           </div>
+        </div>
+
+        {/* 滿額活動提醒（常駐顯示，購物車變動時有脈動提示）*/}
+        <div className="max-w-lg mx-auto px-4 pb-3">
+          <PromotionBanner />
         </div>
       </header>
 

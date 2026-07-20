@@ -4,6 +4,7 @@ import { ArrowLeft, Search, MapPin, X, Loader2, Package } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useCart } from '../../context/CartContext'
 import { CITIES, getDistricts, getPostalCode } from '../../data/postal_codes'
+import PromotionBanner from '../../components/PromotionBanner'
 
 // goibox.tw 的 i 郵箱查詢 Edge Function
 const GOIBOX_API_URL = 'https://vhryiktpxidehcamxcek.supabase.co/functions/v1/search-ibox'
@@ -207,6 +208,9 @@ export default function Checkout() {
       </header>
 
       <div className="max-w-lg mx-auto px-4 py-5 space-y-5 fade-up">
+
+        {/* ── 滿額活動提醒（結帳前再提醒一次）── */}
+        <PromotionBanner />
 
         {/* ── 購物車（含數量調整）── */}
         <div className="card p-4">
