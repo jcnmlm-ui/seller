@@ -605,6 +605,12 @@ export default function OrderDashboard() {
             <Package size={15} />
             <span className="text-[10px]">商品管理</span>
           </Link>
+
+          <Link to="/admin/promotions"
+            className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
+            <span className="text-sm leading-none">🎁</span>
+            <span className="text-[10px]">滿額活動</span>
+          </Link>
         
           <Link to="/booth"
             className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
