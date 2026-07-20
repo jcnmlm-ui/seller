@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   ArrowLeft, Plus, Edit2, Trash2, ToggleLeft, ToggleRight,
   Save, X, Upload, Image, GripVertical,
+  MoreVertical, FileDown, FileUp, ShieldAlert, AlertTriangle,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor,
@@ -13,6 +14,7 @@ import {
   useSortable, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import * as XLSX from 'xlsx'
 import { supabase } from '../../lib/supabase'
 import { toast } from '../../components/StatusBadge'
 
@@ -20,6 +22,35 @@ const EMPTY_FORM = {
   name: '', description: '', barcode: '', price: '',
   stock: '-1', is_available: true, image_url: '',
   stamp_amount: '0',
+}
+
+// ── 匯出／匯入 Excel 對應的資料庫欄位（順序即欄位順序）──────
+const EXCEL_COLUMNS = [
+  'id', 'name', 'description', 'barcode', 'price',
+  'stamp_amount', 'stock', 'is_available', 'image_url',
+  'sort_order', 'created_at',
+]
+const EXCEL_COL_WIDTHS = [36, 24, 30, 14, 10, 12, 8, 10, 40, 10, 20]
+
+function fileTimestamp() {
+  const d = new Date()
+  const p = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`
+}
+
+function excelToBool(val, fallback = true) {
+  if (typeof val === 'boolean') return val
+  if (val === '' || val === null || val === undefined) return fallback
+  const s = String(val).trim().toLowerCase()
+  if (['true', '1', '是', 'yes', 'v', '✓'].includes(s)) return true
+  if (['false', '0', '否', 'no', 'x'].includes(s)) return false
+  return fallback
+}
+
+function excelToNum(val, fallback) {
+  if (val === '' || val === null || val === undefined) return fallback
+  const n = Number(val)
+  return Number.isNaN(n) ? fallback : n
 }
 
 // ── 單一商品卡（可拖曳）────────────────────────────────────
@@ -115,6 +146,17 @@ export default function ProductManage() {
   const [uploading, setUploading] = useState(false)
   const [activeId, setActiveId] = useState(null)  // 拖曳中的 id
   const fileInputRef = useRef(null)
+
+  // ── 匯出／匯入／清空 ──────────────────────────────────
+  const [showMenu, setShowMenu]         = useState(false)
+  const [exporting, setExporting]       = useState(false)
+  const [importing, setImporting]       = useState(false)
+  const [importProgress, setImportProgress] = useState('')
+  const [importResult, setImportResult] = useState(null) // { inserted, updated, failed:[] }
+  const [showClearModal, setShowClearModal] = useState(false)
+  const [clearConfirmText, setClearConfirmText] = useState('')
+  const [clearing, setClearing]         = useState(false)
+  const importInputRef = useRef(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -250,22 +292,220 @@ export default function ProductManage() {
     else { toast('已刪除', 'info'); load() }
   }
 
+  // ── 匯出 Excel（備份）──────────────────────────────────
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const rows = products.map(p => ({
+        id:           p.id,
+        name:         p.name,
+        description:  p.description ?? '',
+        barcode:      p.barcode ?? '',
+        price:        p.price,
+        stamp_amount: p.stamp_amount ?? 0,
+        stock:        p.stock,
+        is_available: p.is_available,
+        image_url:    p.image_url ?? '',
+        sort_order:   p.sort_order ?? '',
+        created_at:   p.created_at ?? '',
+      }))
+      const ws = XLSX.utils.json_to_sheet(rows, { header: EXCEL_COLUMNS })
+      ws['!cols'] = EXCEL_COL_WIDTHS.map(wch => ({ wch }))
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, '商品')
+      XLSX.writeFile(wb, `商品備份_${fileTimestamp()}.xlsx`)
+      toast(
+        rows.length > 0 ? `✓ 已匯出 ${rows.length} 筆商品` : '✓ 已匯出空白範本（目前無商品）',
+        'success'
+      )
+    } catch (err) {
+      toast('匯出失敗：' + err.message, 'error')
+    }
+    setExporting(false)
+    setShowMenu(false)
+  }
+
+  // ── 匯入 Excel（還原／批次新增）───────────────────────
+  async function handleImportFile(file) {
+    if (!file) return
+    const ext = file.name.split('.').pop().toLowerCase()
+    if (!['xlsx', 'xls'].includes(ext)) {
+      toast('請上傳 .xlsx 或 .xls 檔案', 'error'); return
+    }
+
+    setImporting(true)
+    setImportProgress('')
+    const result = { inserted: 0, updated: 0, failed: [] }
+
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const sheet = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+
+      if (rows.length === 0) {
+        toast('檔案內沒有資料列', 'error')
+        setImporting(false); setShowMenu(false); return
+      }
+
+      const existingIds = new Set(products.map(p => p.id))
+
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i]
+        const rowNum = i + 2 // 對應 Excel 實際列號（含表頭列）
+        setImportProgress(`${i + 1}/${rows.length}`)
+
+        const name  = String(r.name ?? '').trim()
+        const price = excelToNum(r.price, NaN)
+
+        if (!name) {
+          result.failed.push({ row: rowNum, name: '(未命名)', reason: '缺少商品名稱' }); continue
+        }
+        if (Number.isNaN(price) || price < 0) {
+          result.failed.push({ row: rowNum, name, reason: '價格無效' }); continue
+        }
+
+        const payload = {
+          name,
+          description:  String(r.description ?? '').trim() || null,
+          barcode:      String(r.barcode ?? '').trim() || null,
+          price,
+          stamp_amount: excelToNum(r.stamp_amount, 0),
+          stock:        excelToNum(r.stock, -1),
+          is_available: excelToBool(r.is_available, true),
+          image_url:    String(r.image_url ?? '').trim() || null,
+        }
+        const sortOrderVal = excelToNum(r.sort_order, null)
+        if (sortOrderVal !== null) payload.sort_order = sortOrderVal
+
+        const id = String(r.id ?? '').trim()
+        try {
+          if (id && existingIds.has(id)) {
+            const { error } = await supabase.from('products').update(payload).eq('id', id)
+            if (error) throw error
+            result.updated++
+          } else {
+            const { error } = await supabase.from('products').insert(payload)
+            if (error) throw error
+            result.inserted++
+          }
+        } catch (err) {
+          const msg = err.message?.includes('duplicate') || err.message?.includes('unique')
+            ? '條碼重複（已存在相同條碼的商品）'
+            : err.message
+          result.failed.push({ row: rowNum, name, reason: msg })
+        }
+      }
+
+      await load()
+      setImportResult(result)
+      if (result.failed.length === 0) {
+        toast(`✓ 匯入完成：新增 ${result.inserted} 筆、更新 ${result.updated} 筆`, 'success')
+      } else {
+        toast(`匯入完成，但有 ${result.failed.length} 筆失敗，詳見結果視窗`, 'error')
+      }
+    } catch (err) {
+      toast('匯入失敗：' + err.message, 'error')
+    }
+    setImporting(false)
+    setImportProgress('')
+    setShowMenu(false)
+  }
+
+  // ── 清空所有商品 ──────────────────────────────────────
+  async function handleClearAll() {
+    if (clearConfirmText.trim() !== '清空') {
+      toast('請輸入「清空」以確認', 'error'); return
+    }
+    setClearing(true)
+    try {
+      const ids = products.map(p => p.id)
+      if (ids.length === 0) {
+        toast('目前沒有商品', 'info')
+      } else {
+        const { error } = await supabase.from('products').delete().in('id', ids)
+        if (error) throw error
+        toast(`✓ 已清空 ${ids.length} 筆商品`, 'success')
+        load()
+      }
+      setShowClearModal(false)
+      setClearConfirmText('')
+    } catch (err) {
+      toast('清除失敗：' + err.message, 'error')
+    }
+    setClearing(false)
+  }
+
   const activeProduct = products.find(p => p.id === activeId)
 
   return (
     <div className="min-h-screen bg-stone-50">
       <header className="bg-white border-b border-stone-200 sticky top-0 z-10">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link to="/admin" className="btn-ghost p-2"><ArrowLeft size={20} /></Link>
-            <div>
+        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <Link to="/admin" className="btn-ghost p-2 flex-shrink-0"><ArrowLeft size={20} /></Link>
+            <div className="min-w-0">
               <h1 className="font-bold text-stone-900">商品管理</h1>
               <p className="text-xs text-stone-400">拖曳左側 ⠿ 圖示可調整順序</p>
             </div>
           </div>
-          <button onClick={openNew} className="btn-primary text-sm py-2 flex items-center gap-1.5">
-            <Plus size={16} /> 新增商品
-          </button>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* 更多操作：匯出／匯入／清空 */}
+            <div className="relative">
+              <button
+                onClick={() => setShowMenu(v => !v)}
+                className="btn-secondary p-2.5"
+                title="更多操作"
+              >
+                <MoreVertical size={18} />
+              </button>
+
+              {showMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl border border-stone-200 shadow-xl z-50 overflow-hidden py-1">
+                    <button
+                      onClick={handleExport}
+                      disabled={exporting}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-700 hover:bg-stone-50 disabled:opacity-50 text-left"
+                    >
+                      <FileDown size={16} className="text-stone-400 flex-shrink-0" />
+                      {exporting ? '匯出中…' : '匯出 Excel（備份）'}
+                    </button>
+                    <button
+                      onClick={() => importInputRef.current?.click()}
+                      disabled={importing}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-stone-700 hover:bg-stone-50 disabled:opacity-50 text-left"
+                    >
+                      <FileUp size={16} className="text-stone-400 flex-shrink-0" />
+                      {importing ? `匯入中… ${importProgress}` : '匯入 Excel（還原）'}
+                    </button>
+                    <div className="h-px bg-stone-100 my-1" />
+                    <button
+                      onClick={() => { setShowMenu(false); setShowClearModal(true) }}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 text-left"
+                    >
+                      <ShieldAlert size={16} className="flex-shrink-0" />
+                      清空所有商品
+                    </button>
+                  </div>
+                </>
+              )}
+
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={e => { handleImportFile(e.target.files?.[0]); e.target.value = '' }}
+              />
+            </div>
+
+            <button onClick={openNew} className="btn-primary text-sm py-2 flex items-center gap-1.5">
+              <Plus size={16} /> 新增商品
+            </button>
+          </div>
         </div>
       </header>
 
@@ -431,6 +671,98 @@ export default function ProductManage() {
                     </span>
                   : <span className="flex items-center justify-center gap-1.5"><Save size={16} />儲存</span>
                 }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 匯入結果視窗 */}
+      {importResult && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden"
+               style={{ maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-stone-100 flex-shrink-0">
+              <h2 className="font-bold text-stone-900">匯入結果</h2>
+              <button onClick={() => setImportResult(null)} className="text-stone-400 hover:text-stone-700">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-3 overflow-y-auto flex-1">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-green-50 rounded-xl py-3">
+                  <p className="text-lg font-bold text-green-600">{importResult.inserted}</p>
+                  <p className="text-xs text-stone-500">新增</p>
+                </div>
+                <div className="bg-blue-50 rounded-xl py-3">
+                  <p className="text-lg font-bold text-blue-600">{importResult.updated}</p>
+                  <p className="text-xs text-stone-500">更新</p>
+                </div>
+                <div className="bg-red-50 rounded-xl py-3">
+                  <p className="text-lg font-bold text-red-600">{importResult.failed.length}</p>
+                  <p className="text-xs text-stone-500">失敗</p>
+                </div>
+              </div>
+
+              {importResult.failed.length > 0 && (
+                <div>
+                  <p className="text-sm font-semibold text-stone-700 mb-2">失敗明細</p>
+                  <div className="space-y-1.5">
+                    {importResult.failed.map((f, i) => (
+                      <div key={i} className="text-xs bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                        <span className="font-semibold text-red-600">第 {f.row} 列</span>
+                        <span className="text-stone-600">　{f.name}</span>
+                        <p className="text-red-500 mt-0.5">{f.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 pb-5 pt-3 border-t border-stone-100 flex-shrink-0">
+              <button onClick={() => setImportResult(null)} className="btn-primary w-full">關閉</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 清空所有商品確認視窗 */}
+      {showClearModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden">
+            <div className="px-5 pt-5 pb-4">
+              <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mb-3">
+                <AlertTriangle size={22} className="text-red-500" />
+              </div>
+              <h2 className="font-bold text-stone-900 mb-1.5">清空所有商品？</h2>
+              <p className="text-sm text-stone-500 leading-relaxed">
+                即將刪除全部 <span className="font-bold text-red-500">{products.length}</span> 項商品，此操作無法復原。
+                （不會影響已存在的訂單紀錄，建議清空前先匯出備份）
+              </p>
+              <p className="text-sm text-stone-500 mt-3">
+                請輸入「<span className="font-bold text-stone-800">清空</span>」以確認：
+              </p>
+              <input
+                className="input mt-2"
+                value={clearConfirmText}
+                onChange={e => setClearConfirmText(e.target.value)}
+                placeholder="清空"
+                autoFocus
+              />
+            </div>
+            <div className="px-5 pb-5 pt-1 flex gap-3">
+              <button
+                onClick={() => { setShowClearModal(false); setClearConfirmText('') }}
+                className="btn-secondary flex-1"
+              >取消</button>
+              <button
+                onClick={handleClearAll}
+                disabled={clearing || clearConfirmText.trim() !== '清空'}
+                className="btn-primary flex-1"
+              >
+                {clearing ? '清除中…' : '確認清空'}
               </button>
             </div>
           </div>
