@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom'
 import { Search, LogOut, Edit2, X, Monitor } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
-import { PAYMENT_LABELS, ENABLED_PAYMENT_METHODS, STORE } from '../../config/store'
+import { PAYMENT_LABELS, STORE } from '../../config/store'
+import { useEnabledPaymentMethods } from '../../hooks/useEnabledPaymentMethods'
 import { toast } from '../../components/StatusBadge'
 
 export default function BoothDashboard() {
+  const enabledPayMethods = useEnabledPaymentMethods()
   const [query, setQuery]           = useState('')
   const [order, setOrder]           = useState(null)
   const [items, setItems]           = useState([])
@@ -283,7 +285,7 @@ export default function BoothDashboard() {
                       <p className="text-xs font-semibold text-stone-400 tracking-widest mb-3">付款方式</p>
                       <div className="flex gap-3">
                         {Object.entries(PAYMENT_LABELS)
-                          .filter(([k]) => ENABLED_PAYMENT_METHODS.includes(k))
+                          .filter(([k]) => enabledPayMethods.includes(k))
                           .map(([k, v]) => (
                           <button key={k} type="button" onClick={() => setPayMethod(k)}
                             className={`flex-1 py-4 rounded-2xl text-sm font-bold border-2 transition-all
@@ -342,7 +344,7 @@ export default function BoothDashboard() {
                         </div>
                         <div className="flex gap-2">
                           {Object.entries(PAYMENT_LABELS)
-                            .filter(([k]) => ENABLED_PAYMENT_METHODS.includes(k))
+                            .filter(([k]) => enabledPayMethods.includes(k))
                             .map(([k, v]) => (
                             <button key={k} type="button" onClick={() => setEditPayMethod(k)}
                               className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-all

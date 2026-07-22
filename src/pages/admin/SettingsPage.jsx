@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Save } from 'lucide-react'
+import { ArrowLeft, Save, ToggleLeft, ToggleRight } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { toast } from '../../components/StatusBadge'
+import { PAYMENT_LABELS, DEFAULT_ENABLED_PAYMENT_METHODS } from '../../config/store'
 
 export default function SettingsPage() {
   const [form, setForm] = useState({
-    store_name:          '',
-    sender_name:         '',
-    sender_phone:        '',
-    sender_postal_code:  '',
-    sender_address:      '',
+    store_name:             '',
+    sender_name:            '',
+    sender_phone:           '',
+    sender_postal_code:     '',
+    sender_address:         '',
+    enabled_payment_methods: DEFAULT_ENABLED_PAYMENT_METHODS,
   })
   const [loading, setSaving] = useState(false)
 
@@ -18,16 +20,32 @@ export default function SettingsPage() {
     supabase.from('settings').select('*').eq('id', 'main').single()
       .then(({ data }) => {
         if (data) setForm({
-          store_name:         data.store_name         ?? '',
-          sender_name:        data.sender_name        ?? '',
-          sender_phone:       data.sender_phone       ?? '',
-          sender_postal_code: data.sender_postal_code ?? '',
-          sender_address:     data.sender_address     ?? '',
+          store_name:              data.store_name         ?? '',
+          sender_name:             data.sender_name        ?? '',
+          sender_phone:            data.sender_phone       ?? '',
+          sender_postal_code:      data.sender_postal_code ?? '',
+          sender_address:          data.sender_address     ?? '',
+          enabled_payment_methods: data.enabled_payment_methods?.length
+            ? data.enabled_payment_methods : DEFAULT_ENABLED_PAYMENT_METHODS,
         })
       })
   }, [])
 
   function set(key, val) { setForm(f => ({ ...f, [key]: val })) }
+
+  function togglePayMethod(key) {
+    setForm(f => {
+      const has = f.enabled_payment_methods.includes(key)
+      if (has && f.enabled_payment_methods.length === 1) {
+        toast('至少要保留一種付款方式', 'error')
+        return f
+      }
+      const next = has
+        ? f.enabled_payment_methods.filter(k => k !== key)
+        : [...f.enabled_payment_methods, key]
+      return { ...f, enabled_payment_methods: next }
+    })
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -71,6 +89,35 @@ export default function SettingsPage() {
               onChange={e => set('store_name', e.target.value)} />
             <p className="text-xs text-stone-400 mt-1">顯示在顧客預購頁的標題</p>
           </div>
+        </div>
+
+        {/* 付款方式 */}
+        <div className="card p-5 space-y-1">
+          <h2 className="font-bold text-stone-900 border-b border-stone-100 pb-2 mb-3">
+            💳 付款方式
+          </h2>
+          <p className="text-xs text-stone-400 mb-3">
+            開啟的方式會出現在顧客結帳說明、攤位收款／收銀台的可選按鈕上；關閉的不會顯示，但不影響過去已經用該方式付款的訂單紀錄。
+          </p>
+          {Object.entries(PAYMENT_LABELS).map(([key, label]) => {
+            const enabled = form.enabled_payment_methods.includes(key)
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => togglePayMethod(key)}
+                className="w-full flex items-center justify-between py-2.5 border-b border-stone-50 last:border-0"
+              >
+                <span className={`text-sm font-medium ${enabled ? 'text-stone-800' : 'text-stone-400'}`}>
+                  {label}
+                </span>
+                {enabled
+                  ? <ToggleRight size={26} className="text-green-500" />
+                  : <ToggleLeft size={26} className="text-stone-300" />
+                }
+              </button>
+            )
+          })}
         </div>
 
         {/* 寄件人資訊 */}

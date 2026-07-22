@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { supabase } from '../../lib/supabase'
-import { STATUS_CONFIG, PAYMENT_LABELS, ENABLED_PAYMENT_METHODS } from '../../config/store'
+import { STATUS_CONFIG, PAYMENT_LABELS } from '../../config/store'
+import { useEnabledPaymentMethods } from '../../hooks/useEnabledPaymentMethods'
 
 // 郵局包裹追蹤網址
 const POST_TRACK_URL = 'https://postserv.post.gov.tw/pstatus/TrackMail.jsp?id='
 
 export default function OrderConfirm() {
+  const enabledPayMethods = useEnabledPaymentMethods()
   const { orderNo } = useParams()
   const [order, setOrder] = useState(null)
   const [items, setItems] = useState([])
@@ -120,7 +122,7 @@ export default function OrderConfirm() {
             <p className="text-sm font-bold text-stone-700 mb-2">💳 可使用付款方式</p>
             <div className="flex gap-2">
               {Object.entries(PAYMENT_LABELS)
-                .filter(([k]) => ENABLED_PAYMENT_METHODS.includes(k))
+                .filter(([k]) => enabledPayMethods.includes(k))
                 .map(([k, v]) => (
                 <span key={k} className="bg-stone-100 text-stone-600 text-xs px-3 py-1.5 rounded-lg font-medium">
                   {v}

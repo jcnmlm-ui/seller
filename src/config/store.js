@@ -16,10 +16,9 @@ export const PAYMENT_LABELS = {
   taiwan_pay: '📱 電子支付',
 }
 
-// 目前這個攤位／場合實際開放收款的方式（控制前台結帳說明、攤位收款/收銀台可選按鈕）
-// 不同場合支援的收款方式不同：要開放電子支付時，把 'taiwan_pay' 加進這個陣列即可，
-// 不用去改其他任何檔案。
-export const ENABLED_PAYMENT_METHODS = ['cash', 'card']
+// 目前這個攤位／場合實際開放收款的方式，改成存在資料庫 settings.enabled_payment_methods，
+// 可以在 admin 系統設定頁面直接開/關。這裡只是「資料庫還沒載入完成前」的預設 fallback 值。
+export const DEFAULT_ENABLED_PAYMENT_METHODS = ['cash', 'card']
 
 // 訂單狀態設定（標籤 + 顏色 + 下一個狀態）
 export const STATUS_CONFIG = {

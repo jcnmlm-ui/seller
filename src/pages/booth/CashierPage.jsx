@@ -3,10 +3,12 @@ import { Link } from 'react-router-dom'
 import { Search, X, LogOut, Trash2, Plus, Minus, ShoppingCart } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
-import { STORE, PAYMENT_LABELS, ENABLED_PAYMENT_METHODS } from '../../config/store'
+import { STORE, PAYMENT_LABELS } from '../../config/store'
+import { useEnabledPaymentMethods } from '../../hooks/useEnabledPaymentMethods'
 import { toast } from '../../components/StatusBadge'
 
 export default function CashierPage() {
+  const enabledPayMethods = useEnabledPaymentMethods()
   const [cartItems, setCartItems]   = useState([])   // [{ id, name, barcode, price, qty }]
   const [barcodeInput, setBarcodeInput] = useState('')
   const [payMethod, setPayMethod]   = useState('cash')
@@ -335,7 +337,7 @@ export default function CashierPage() {
                 <p className="text-xs font-semibold text-stone-400 tracking-widest mb-3">付款方式</p>
                 <div className="flex gap-3">
                   {Object.entries(PAYMENT_LABELS)
-                    .filter(([k]) => ENABLED_PAYMENT_METHODS.includes(k))
+                    .filter(([k]) => enabledPayMethods.includes(k))
                     .map(([k, v]) => (
                     <button key={k} type="button" onClick={() => setPayMethod(k)}
                       className={`flex-1 py-4 rounded-2xl text-sm font-bold border-2 transition-all
