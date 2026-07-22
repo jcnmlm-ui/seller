@@ -35,9 +35,13 @@ export default function PromotionBanner() {
 
   if (loading || tiers.length === 0) return null
 
-  const nextTier      = tiers.find(t => total < t.threshold)
-  const allDone        = !nextTier
-  const prevThreshold  = [...tiers].reverse().find(t => total >= t.threshold)?.threshold ?? 0
+  // 目前達成的最高一階（唯一會亮起打勾的）；超過它的較低門檻不再保持點亮
+  const achievedTiers = tiers.filter(t => total >= t.threshold)
+  const currentTier   = achievedTiers.length > 0 ? achievedTiers[achievedTiers.length - 1] : null
+  const nextTier       = tiers.find(t => total < t.threshold)
+  const allDone         = !nextTier
+
+  const prevThreshold  = currentTier?.threshold ?? 0
   const progressPct    = nextTier
     ? Math.min(100, Math.max(0, ((total - prevThreshold) / (nextTier.threshold - prevThreshold)) * 100))
     : 100
@@ -51,26 +55,26 @@ export default function PromotionBanner() {
           : <Gift size={15} className="text-red-500 flex-shrink-0" />
         }
         <span className="font-bold text-sm text-stone-800">
-          {allDone ? '已解鎖全部滿額贈品！' : '滿額贈好禮'}
+          {allDone ? `🎉 已達最高門檻，可獲得「${currentTier.reward}」` : '滿額贈好禮'}
         </span>
       </div>
 
-      {/* 門檻梯子 */}
+      {/* 門檻梯子：任何時刻只有「目前這一階」亮起打勾，其餘（含已被超越的較低門檻）都是暗的 */}
       <div className="flex flex-wrap gap-1.5 mb-2">
         {tiers.map(t => {
-          const achieved = total >= t.threshold
-          const isNext   = t.id === nextTier?.id
+          const isCurrent = t.id === currentTier?.id
+          const isNext    = t.id === nextTier?.id
           return (
             <span
               key={t.id}
               className={`text-xs px-2 py-1 rounded-full font-semibold border leading-tight
-                ${achieved
+                ${isCurrent
                   ? 'bg-green-100 text-green-700 border-green-200'
                   : isNext
                     ? 'bg-white text-red-600 border-red-300'
                     : 'bg-stone-100 text-stone-400 border-stone-200'}`}
             >
-              {achieved ? '✓ ' : ''}NT${t.threshold.toLocaleString()} {t.reward}
+              {isCurrent ? '✓ ' : ''}NT${t.threshold.toLocaleString()} {t.reward}
             </span>
           )
         })}
