@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ShoppingCart, Search, Package, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { ShoppingCart, Search, Package, X, ChevronDown, ChevronUp, Dices } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useCart } from '../../context/CartContext'
 import { STORE } from '../../config/store'
 import PromotionBanner from '../../components/PromotionBanner'
+import { toast } from '../../components/StatusBadge'
 
 // ── 個資蒐集聲明 Modal ────────────────────────────────────
 function PrivacyModal({ onAccept }) {
@@ -138,6 +139,10 @@ export default function ProductList() {
   const [showPrivacy, setShowPrivacy] = useState(false)
   const { items, dispatch, count, total } = useCart()
 
+  // ── 試手氣！一鍵滿額 ──────────────────────────────────
+  const [luckyTarget, setLuckyTarget]   = useState(null)  // 最高的啟用中滿額門檻
+  const [luckyDrawing, setLuckyDrawing] = useState(false)
+
   useEffect(() => {
     // 個資聲明：未接受過則顯示
     if (!localStorage.getItem('booth_privacy_accepted')) {
@@ -153,11 +158,81 @@ export default function ProductList() {
         if (!error) setProducts(data ?? [])
         setLoading(false)
       })
+    // 取得目前最高的滿額門檻（試手氣的目標金額）
+    supabase
+      .from('promotion_tiers')
+      .select('threshold')
+      .eq('is_active', true)
+      .order('threshold', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setLuckyTarget(data?.threshold ?? null))
   }, [])
 
   function acceptPrivacy() {
     localStorage.setItem('booth_privacy_accepted', 'true')
     setShowPrivacy(false)
+  }
+
+  // 隨機挑商品加入購物車，湊到最高滿額門檻（在目前購物車金額基礎上繼續加）
+  function handleLuckyDraw() {
+    if (!luckyTarget || luckyDrawing) return
+    const remaining = luckyTarget - total
+    if (remaining <= 0) {
+      toast('已經達成最高門檻囉，不用再抽啦！🎉', 'info')
+      return
+    }
+
+    setLuckyDrawing(true)
+
+    // 建立候選商品池：排除已無庫存可加的商品（庫存需扣掉購物車已有的數量）
+    let pool = products
+      .filter(p => p.price > 0)
+      .map(p => {
+        const inCartQty = items.find(i => i.id === p.id)?.quantity || 0
+        const remainingStock = p.stock === -1 ? Infinity : Math.max(0, p.stock - inCartQty)
+        return { product: p, remainingStock }
+      })
+      .filter(entry => entry.remainingStock > 0)
+
+    if (pool.length === 0) {
+      toast('目前沒有可加入的商品（可能都缺貨了）', 'error')
+      setLuckyDrawing(false)
+      return
+    }
+
+    // 稍微延遲一下再出結果，增加「抽獎」的感覺
+    setTimeout(() => {
+      const additions = new Map() // productId → { product, qty }
+      let addedTotal = 0
+      let safety = 0
+
+      while (addedTotal < remaining && pool.length > 0 && safety < 1000) {
+        safety++
+        const idx = Math.floor(Math.random() * pool.length)
+        const entry = pool[idx]
+
+        const prev = additions.get(entry.product.id)
+        additions.set(entry.product.id, { product: entry.product, qty: (prev?.qty ?? 0) + 1 })
+        addedTotal += entry.product.price
+
+        entry.remainingStock -= 1
+        if (entry.remainingStock <= 0) pool.splice(idx, 1)
+      }
+
+      additions.forEach(({ product, qty }) => {
+        dispatch({ type: 'ADD_QTY', product, qty })
+      })
+
+      const newTotal = total + addedTotal
+      const itemKinds = additions.size
+      if (newTotal >= luckyTarget) {
+        toast(`🎲 手氣不錯！隨機加入 ${itemKinds} 種商品，達成 NT$${luckyTarget.toLocaleString()} 門檻！`, 'success')
+      } else {
+        toast(`🎲 商品庫存有限，只湊到 NT$${newTotal.toLocaleString()}，還差 NT$${(luckyTarget - newTotal).toLocaleString()}`, 'info')
+      }
+      setLuckyDrawing(false)
+    }, 450)
   }
 
   const filtered = products.filter(p =>
@@ -172,23 +247,41 @@ export default function ProductList() {
 
       {/* ── 固定頂部 Header ── */}
       <header className="flex-shrink-0 bg-white border-b border-stone-200 shadow-sm z-10">
-        <div className="max-w-lg mx-auto px-4 pt-3 pb-2 flex items-center justify-between">
+        <div className="max-w-lg mx-auto px-4 pt-3 pb-2 flex items-center justify-between gap-2 flex-wrap">
           <div>
             <h1 className="text-base font-black text-stone-900 leading-tight">{STORE.name}</h1>
             <p className="text-xs text-stone-400">掃碼下單 · 現場取貨付款</p>
           </div>
-          <Link to="/checkout" className="relative flex-shrink-0">
-            <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-sm transition-colors
-              ${count > 0 ? 'bg-red-500 text-white' : 'bg-stone-100 text-stone-600'}`}>
-              <ShoppingCart size={15} />
-              <span>{count > 0 ? `NT$${total.toLocaleString()}` : '購物車'}</span>
-            </div>
-            {count > 0 && (
-              <span className="absolute -top-2 -right-2 bg-stone-900 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-                {count > 99 ? '99+' : count}
-              </span>
+
+          <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+            {/* 試手氣！一鍵滿額 */}
+            {luckyTarget && total < luckyTarget && (
+              <button
+                onClick={handleLuckyDraw}
+                disabled={luckyDrawing}
+                title="試手氣！一鍵滿額！"
+                className="flex items-center gap-1 px-2.5 py-2 rounded-xl font-bold text-xs text-white
+                  bg-gradient-to-r from-amber-400 to-orange-500 shadow-sm
+                  active:scale-95 transition-transform disabled:opacity-60 whitespace-nowrap"
+              >
+                <Dices size={14} className={luckyDrawing ? 'animate-spin' : ''} />
+                {luckyDrawing ? '抽獎中…' : '試手氣！一鍵滿額！'}
+              </button>
             )}
-          </Link>
+
+            <Link to="/checkout" className="relative flex-shrink-0">
+              <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-sm transition-colors
+                ${count > 0 ? 'bg-red-500 text-white' : 'bg-stone-100 text-stone-600'}`}>
+                <ShoppingCart size={15} />
+                <span>{count > 0 ? `NT$${total.toLocaleString()}` : '購物車'}</span>
+              </div>
+              {count > 0 && (
+                <span className="absolute -top-2 -right-2 bg-stone-900 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+                  {count > 99 ? '99+' : count}
+                </span>
+              )}
+            </Link>
+          </div>
         </div>
 
         {/* 搜尋列 */}
