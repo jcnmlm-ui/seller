@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Search, LogOut, Edit2, X, Monitor } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
@@ -8,6 +8,7 @@ import { useEnabledPaymentMethods } from '../../hooks/useEnabledPaymentMethods'
 import { toast } from '../../components/StatusBadge'
 
 export default function BoothDashboard() {
+  const navigate = useNavigate()
   const enabledPayMethods = useEnabledPaymentMethods()
   const [query, setQuery]           = useState('')
   const [order, setOrder]           = useState(null)
@@ -25,6 +26,15 @@ export default function BoothDashboard() {
     inputRef.current?.focus()
     loadTodayStats()
   }, [])
+
+  // ── 快速鍵：F2 現場收銀台／F3 攤位收款（本頁），方便全螢幕時免用滑鼠切換 ──
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.key === 'F2') { e.preventDefault(); navigate('/cashier') }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [navigate])
 
   async function loadTodayStats() {
     const today = new Date().toISOString().slice(0, 10)
@@ -145,7 +155,7 @@ export default function BoothDashboard() {
           <p className="text-xs text-stone-400">攤位收款介面</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link to="/cashier"
+          <Link to="/cashier" title="快速鍵 F2"
             className="flex items-center gap-1.5 text-stone-300 hover:text-white text-xs border border-stone-700 hover:border-stone-500 rounded-lg px-3 py-2 transition-colors">
             🏪 現場收銀台
           </Link>

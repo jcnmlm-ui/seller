@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Link } from 'react-router-dom'
-import { Search, X, LogOut, Trash2, Plus, Minus, ShoppingCart } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Search, X, LogOut, Trash2, Plus, Minus, ShoppingCart, Monitor } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import { STORE, PAYMENT_LABELS } from '../../config/store'
@@ -8,6 +8,7 @@ import { useEnabledPaymentMethods } from '../../hooks/useEnabledPaymentMethods'
 import { toast } from '../../components/StatusBadge'
 
 export default function CashierPage() {
+  const navigate = useNavigate()
   const enabledPayMethods = useEnabledPaymentMethods()
   const [cartItems, setCartItems]   = useState([])   // [{ id, name, barcode, price, qty }]
   const [barcodeInput, setBarcodeInput] = useState('')
@@ -22,6 +23,15 @@ export default function CashierPage() {
     inputRef.current?.focus()
     loadTodayStats()
   }, [])
+
+  // ── 快速鍵：F2 現場收銀台（本頁）／F3 攤位收款，方便全螢幕時免用滑鼠切換 ──
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.key === 'F3') { e.preventDefault(); navigate('/booth') }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [navigate])
 
   async function loadTodayStats() {
     const today = new Date().toISOString().slice(0, 10)
@@ -173,13 +183,13 @@ export default function CashierPage() {
           <p className="text-xs text-stone-400">現場收銀台</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link to="/booth"
+          <Link to="/booth" title="快速鍵 F3"
             className="flex items-center gap-1.5 text-stone-300 hover:text-white text-xs border border-stone-700 hover:border-stone-500 rounded-lg px-3 py-2 transition-colors">
             攤位收款
           </Link>
           <Link to="/admin"
             className="flex items-center gap-1.5 text-stone-300 hover:text-white text-xs border border-stone-700 hover:border-stone-500 rounded-lg px-3 py-2 transition-colors">
-            出貨後台
+            <Monitor size={13} /> 出貨管理後台
           </Link>
           <div className="text-right text-xs text-stone-400 border-l border-stone-700 pl-3 ml-1">
             <p>今日現場 {todayStats.count} 筆</p>
