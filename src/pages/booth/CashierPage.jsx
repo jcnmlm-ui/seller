@@ -57,7 +57,7 @@ export default function CashierPage() {
     // 查詢商品（用條碼）
     const { data: products, error } = await supabase
       .from('products')
-      .select('id, name, barcode, price, stock, is_available')
+      .select('id, name, barcode, price, stamp_amount, stock, is_available')
       .eq('barcode', code)
       .eq('is_available', true)
       .limit(1)
@@ -79,7 +79,7 @@ export default function CashierPage() {
       if (existing) {
         return prev.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i)
       }
-      return [...prev, { id: product.id, name: product.name, barcode: product.barcode, price: product.price, qty: 1 }]
+      return [...prev, { id: product.id, name: product.name, barcode: product.barcode, price: product.price, stamp_amount: product.stamp_amount ?? 0, qty: 1 }]
     })
     toast(`✓ ${product.name} 已加入`, 'success', 1500)
   }
@@ -250,9 +250,14 @@ export default function CashierPage() {
                     className="flex items-center gap-3 bg-stone-50 rounded-xl px-3 py-2.5">
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-stone-900 text-sm truncate">{item.name}</p>
-                      {item.barcode && (
-                        <p className="text-xs text-stone-400 font-mono">{item.barcode}</p>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {item.barcode && (
+                          <p className="text-xs text-stone-400 font-mono">{item.barcode}</p>
+                        )}
+                        {item.stamp_amount > 0 && (
+                          <p className="text-xs text-blue-500">📮 含郵票 NT${(item.stamp_amount * item.qty).toLocaleString()}</p>
+                        )}
+                      </div>
                     </div>
                     {/* 數量調整 */}
                     <div className="flex items-center gap-1 bg-white rounded-xl border border-stone-200 px-1 py-1 flex-shrink-0">
