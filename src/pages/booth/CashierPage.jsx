@@ -24,7 +24,7 @@ export default function CashierPage() {
     loadTodayStats()
   }, [])
 
-  // ── 快速鍵：F2 現場收銀台（本頁）／F3 攤位收款，方便全螢幕時免用滑鼠切換 ──
+  // ── 快速鍵：F3 切換到攤位收款，方便全螢幕時免用滑鼠切換 ──
   useEffect(() => {
     function handleKeyDown(e) {
       if (e.key === 'F3') { e.preventDefault(); navigate('/booth') }
@@ -186,6 +186,7 @@ export default function CashierPage() {
           <Link to="/booth" title="快速鍵 F3"
             className="flex items-center gap-1.5 text-stone-300 hover:text-white text-xs border border-stone-700 hover:border-stone-500 rounded-lg px-3 py-2 transition-colors">
             攤位收款
+            <span className="text-[10px] bg-stone-700 text-stone-300 px-1.5 py-0.5 rounded font-mono leading-none">F3</span>
           </Link>
           <Link to="/admin"
             className="flex items-center gap-1.5 text-stone-300 hover:text-white text-xs border border-stone-700 hover:border-stone-500 rounded-lg px-3 py-2 transition-colors">
