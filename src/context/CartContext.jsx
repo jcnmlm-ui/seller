@@ -15,6 +15,17 @@ function cartReducer(state, action) {
       }
       return [...state, { ...action.product, quantity: 1 }]
     }
+    case 'ADD_QTY': {
+      const existing = state.find(i => i.id === action.product.id)
+      if (existing) {
+        return state.map(i =>
+          i.id === action.product.id
+            ? { ...i, quantity: i.quantity + action.qty }
+            : i
+        )
+      }
+      return [...state, { ...action.product, quantity: action.qty }]
+    }
     case 'REMOVE':
       return state.filter(i => i.id !== action.id)
     case 'UPDATE_QTY':
