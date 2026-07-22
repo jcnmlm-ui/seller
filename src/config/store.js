@@ -9,12 +9,17 @@ export const STORE = {
   email:   '',                       // ← 選填
 }
 
-// 付款方式標籤
+// 付款方式標籤（顯示用，涵蓋所有曾經／未來可能用到的方式，歷史訂單也靠這份顯示）
 export const PAYMENT_LABELS = {
   cash:       '💵 現金',
   card:       '💳 刷卡',
-  taiwan_pay: '📱 台灣PAY',
+  taiwan_pay: '📱 電子支付',
 }
+
+// 目前這個攤位／場合實際開放收款的方式（控制前台結帳說明、攤位收款/收銀台可選按鈕）
+// 不同場合支援的收款方式不同：要開放電子支付時，把 'taiwan_pay' 加進這個陣列即可，
+// 不用去改其他任何檔案。
+export const ENABLED_PAYMENT_METHODS = ['cash', 'card']
 
 // 訂單狀態設定（標籤 + 顏色 + 下一個狀態）
 export const STATUS_CONFIG = {

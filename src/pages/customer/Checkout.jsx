@@ -4,6 +4,7 @@ import { ArrowLeft, Search, MapPin, X, Loader2, Package } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useCart } from '../../context/CartContext'
 import { CITIES, getDistricts, getPostalCode } from '../../data/postal_codes'
+import { PAYMENT_LABELS, ENABLED_PAYMENT_METHODS } from '../../config/store'
 import PromotionBanner from '../../components/PromotionBanner'
 
 // goibox.tw 的 i 郵箱查詢 Edge Function
@@ -495,7 +496,7 @@ export default function Checkout() {
         {/* 付款說明 */}
         <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4 text-sm text-yellow-800">
           <p className="font-bold mb-1">💳 付款方式</p>
-          <p>下單完成後，請至攤位出示訂單畫面，可使用<strong>現金、刷卡或台灣PAY</strong>付款後完成結帳。</p>
+          <p>下單完成後，請至攤位出示訂單畫面，可使用<strong>{ENABLED_PAYMENT_METHODS.map(k => PAYMENT_LABELS[k]?.slice(2)).join('、')}</strong>付款後完成結帳。</p>
         </div>
       </div>
 

@@ -67,8 +67,6 @@ function SortableProduct({ product, onEdit, onDelete, onToggle }) {
     zIndex:  isDragging ? 10 : undefined,
   }
 
-  const PAYMENT_LABELS = { cash:'現金', card:'刷卡', taiwan_pay:'台灣PAY' }
-
   return (
     <div
       ref={setNodeRef}

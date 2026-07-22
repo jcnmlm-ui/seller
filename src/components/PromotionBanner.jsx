@@ -55,7 +55,7 @@ export default function PromotionBanner() {
           : <Gift size={15} className="text-red-500 flex-shrink-0" />
         }
         <span className="font-bold text-sm text-stone-800">
-          {allDone ? `🎉 已達最高門檻，可獲得「${currentTier.reward}」` : '滿額贈好禮'}
+          {allDone ? `已達最高門檻，可獲得「${currentTier.reward}」` : '滿額贈好禮'}
         </span>
       </div>
 

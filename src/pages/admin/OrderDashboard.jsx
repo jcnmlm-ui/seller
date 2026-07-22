@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { useReactToPrint } from 'react-to-print'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
-import { STATUS_CONFIG, STORE } from '../../config/store'
+import { STATUS_CONFIG, STORE, PAYMENT_LABELS } from '../../config/store'
 import { StatusBadge, toast } from '../../components/StatusBadge'
 import ShippingSlipA4 from '../../components/print/ShippingSlipA4'
 import WaybillA6 from '../../components/print/WaybillA6'
@@ -324,7 +324,7 @@ export default function OrderDashboard() {
       .on('broadcast', { event: 'payment_confirmed' }, ({ payload }) => {
         const name   = payload.receiver_name ?? ''
         const amount = payload.total_amount  ?? 0
-        const method = { cash:'現金', card:'刷卡', taiwan_pay:'台灣PAY' }[payload.payment_method] ?? ''
+        const method = PAYMENT_LABELS[payload.payment_method] ?? ''
         toast(`💰 ${name} 已付款 NT$${Number(amount).toLocaleString()}（${method}）`, 'success', 6000)
         sendNotification('💰 新收款', `${name}  NT$${Number(amount).toLocaleString()}（${method}）`, payload.order_no)
         playAlert()
@@ -785,8 +785,6 @@ function OrderCard({
   onToggleSelect, onToggle, onStartPicking, onUpdateStatus,
   onConfirmShip, onEditTracking, onPrint,
 }) {
-  const PAYMENT_LABELS = { cash: '💵 現金', card: '💳 刷卡', taiwan_pay: '📱 台灣PAY' }
-
   return (
     <div className={`bg-white rounded-xl border overflow-hidden transition-colors
       ${isSelected ? 'border-red-400 ring-1 ring-red-300' : 'border-stone-200'}`}>

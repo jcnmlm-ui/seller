@@ -30,7 +30,6 @@ export default function ShippingSlipA4({ order, items, senderInfo }) {
   const senderAddress = senderInfo?.sender_address     || STORE.address
   const senderPostal  = senderInfo?.sender_postal_code || ''
 
-  const payLabel   = { cash:'現金', card:'刷卡', taiwan_pay:'台灣PAY' }
   const postalCode = order.receiver_postal_code || ''
 
   return (
@@ -53,7 +52,7 @@ export default function ShippingSlipA4({ order, items, senderInfo }) {
           </span>
           {order.payment_method && (
             <span style={{ background:'#f0f0f0', padding:'2px 8px', borderRadius:'4px', fontWeight:'bold' }}>
-              {payLabel[order.payment_method]}
+              {PAYMENT_LABELS[order.payment_method]?.slice(2)}
             </span>
           )}
         </div>
