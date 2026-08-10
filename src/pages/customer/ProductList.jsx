@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ShoppingCart, Search, Package, X, ChevronDown, ChevronUp, Dices } from 'lucide-react'
+import { ShoppingCart, Search, Package, X, ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useCart } from '../../context/CartContext'
 import { STORE } from '../../config/store'
@@ -179,7 +179,7 @@ export default function ProductList() {
     if (!luckyTarget || luckyDrawing) return
     const remaining = luckyTarget - total
     if (remaining <= 0) {
-      toast('已經達成最高門檻囉，不用再抽啦！🎉', 'info')
+      toast('已經達成最高門檻囉，小精靈不用出動啦！🎉', 'info')
       return
     }
 
@@ -196,7 +196,7 @@ export default function ProductList() {
       .filter(entry => entry.remainingStock > 0)
 
     if (pool.length === 0) {
-      toast('目前沒有可加入的商品（可能都缺貨了）', 'error')
+      toast('小精靈找不到可以加的商品（可能都缺貨了）', 'error')
       setLuckyDrawing(false)
       return
     }
@@ -227,9 +227,9 @@ export default function ProductList() {
       const newTotal = total + addedTotal
       const itemKinds = additions.size
       if (newTotal >= luckyTarget) {
-        toast(`🎲 手氣不錯！隨機加入 ${itemKinds} 種商品，達成 NT$${luckyTarget.toLocaleString()} 門檻！`, 'success')
+        toast(`✨ 小精靈煩惱後，精選加入了「${itemKinds}種商品」，達成 NT$${luckyTarget.toLocaleString()} 門檻！`, 'success')
       } else {
-        toast(`🎲 商品庫存有限，只湊到 NT$${newTotal.toLocaleString()}，還差 NT$${(luckyTarget - newTotal).toLocaleString()}`, 'info')
+        toast(`✨ 小精靈盡力了，只湊到 NT$${newTotal.toLocaleString()}，庫存不夠湊滿 NT$${luckyTarget.toLocaleString()}`, 'info')
       }
       setLuckyDrawing(false)
     }, 450)
@@ -254,18 +254,18 @@ export default function ProductList() {
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
-            {/* 試手氣！一鍵滿額 */}
+            {/* 選擇困難嗎？一鍵滿額 */}
             {luckyTarget && total < luckyTarget && (
               <button
                 onClick={handleLuckyDraw}
                 disabled={luckyDrawing}
-                title="試手氣！一鍵滿額！"
+                title="選擇困難嗎？一鍵滿額！"
                 className="flex items-center gap-1 px-2.5 py-2 rounded-xl font-bold text-xs text-white
                   bg-gradient-to-r from-amber-400 to-orange-500 shadow-sm
                   active:scale-95 transition-transform disabled:opacity-60 whitespace-nowrap"
               >
-                <Dices size={14} className={luckyDrawing ? 'animate-spin' : ''} />
-                {luckyDrawing ? '抽獎中…' : '試手氣！一鍵滿額！'}
+                <Sparkles size={14} className={luckyDrawing ? 'animate-spin' : ''} />
+                {luckyDrawing ? '小精靈選購中…' : '選擇困難嗎？一鍵滿額！'}
               </button>
             )}
 
