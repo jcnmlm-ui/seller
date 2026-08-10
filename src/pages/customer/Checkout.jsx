@@ -12,6 +12,12 @@ import PromotionBanner from '../../components/PromotionBanner'
 const GOIBOX_API_URL = 'https://vhryiktpxidehcamxcek.supabase.co/functions/v1/search-ibox'
 const GOIBOX_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZocnlpa3RweGlkZWhjYW14Y2VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1OTYyODQsImV4cCI6MjA5NTE3MjI4NH0.7Z1drPMsqGPYDaIS8qLaRALIapnOTahxPMmKnEi_KJA'
 
+// 電話格式驗證規則（手機/市話共用，即時驗證與送出前驗證都用這份，避免兩處寫法不一致）
+const MOBILE_RE     = /^09\d{8}$/
+const LANDLINE_RE   = /^0[2-8]\d{6,8}(#\d+)?$/   // 含台東089、金門082、馬祖0836等3~4碼區碼
+const MOBILE_ERR    = '手機號碼格式不正確（09開頭10碼）'
+const LANDLINE_ERR  = '市話格式不正確（含區碼，如 07-2614171，分機請用#分隔，如 07-2614171#409）'
+
 export default function Checkout() {
   const enabledPayMethods = useEnabledPaymentMethods()
   const { items, dispatch, total, stampTotal, invoiceTotal } = useCart()
@@ -114,13 +120,13 @@ export default function Checkout() {
 
     // 手機格式
     const cleanMobile = form.mobile.replace(/[-\s]/g, '')
-    if (form.mobile && !/^09\d{8}$/.test(cleanMobile))
-      e.mobile = '手機號碼格式不正確（09開頭10碼）'
+    if (form.mobile && !MOBILE_RE.test(cleanMobile))
+      e.mobile = MOBILE_ERR
 
     // 市話格式（區碼+號碼，主號至少6碼，後面可接 #分機，分機長度不限）
     const cleanLand = form.landline.replace(/[-\s]/g, '')
-    if (form.landline && !/^0[2-8]\d{6,8}(#\d+)?$/.test(cleanLand))
-      e.landline = '市話格式不正確（含區碼，如 07-2614171，分機請用#分隔，如 07-2614171#409）'
+    if (form.landline && !LANDLINE_RE.test(cleanLand))
+      e.landline = LANDLINE_ERR
 
     // 至少填一個
     if (!form.mobile.trim() && !form.landline.trim())
@@ -316,7 +322,13 @@ export default function Checkout() {
                     className={`input text-sm py-2.5 ${errors.mobile ? 'border-red-400' : ''}`}
                     placeholder="0912-345-678（選填）"
                     value={form.mobile}
-                    onChange={e => { setForm(f=>({...f,mobile:e.target.value})); setErrors(e2=>({...e2,mobile:'',phone_required:''})) }} />
+                    onChange={e => { setForm(f=>({...f,mobile:e.target.value})); setErrors(e2=>({...e2,mobile:'',phone_required:''})) }}
+                    onBlur={e => {
+                      const val = e.target.value.trim()
+                      if (!val) return
+                      const clean = val.replace(/[-\s]/g, '')
+                      if (!MOBILE_RE.test(clean)) setErrors(e2 => ({ ...e2, mobile: MOBILE_ERR }))
+                    }} />
                   {errors.mobile && <p className="text-red-500 text-xs mt-1">{errors.mobile}</p>}
                 </div>
               </div>
@@ -328,7 +340,13 @@ export default function Checkout() {
                     className={`input text-sm py-2.5 ${errors.landline ? 'border-red-400' : ''}`}
                     placeholder="07-2614171#409（選填，含區碼）"
                     value={form.landline}
-                    onChange={e => { setForm(f=>({...f,landline:e.target.value})); setErrors(e2=>({...e2,landline:'',phone_required:''})) }} />
+                    onChange={e => { setForm(f=>({...f,landline:e.target.value})); setErrors(e2=>({...e2,landline:'',phone_required:''})) }}
+                    onBlur={e => {
+                      const val = e.target.value.trim()
+                      if (!val) return
+                      const clean = val.replace(/[-\s]/g, '')
+                      if (!LANDLINE_RE.test(clean)) setErrors(e2 => ({ ...e2, landline: LANDLINE_ERR }))
+                    }} />
                   {errors.landline && <p className="text-red-500 text-xs mt-1">{errors.landline}</p>}
                 </div>
               </div>
