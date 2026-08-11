@@ -18,7 +18,7 @@ function PrivacyModal({ onAccept }) {
         <div className="px-5 py-4 border-b border-stone-100 flex-shrink-0">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="text-xl">🔒</span>
-            <h2 className="font-black text-lg text-stone-900">個人資料蒐集聲明</h2>
+            <h2 className="font-black text-lg text-stone-900">個人資料蒐集、處理及利用告知書</h2>
           </div>
           <p className="text-xs text-stone-400">依個人資料保護法第 8 條規定，請閱讀以下告知事項</p>
         </div>
@@ -28,33 +28,33 @@ function PrivacyModal({ onAccept }) {
           <div className="bg-stone-50 rounded-xl p-4 space-y-3">
             <div>
               <p className="font-bold text-stone-800 mb-1">一、蒐集目的</p>
-              <p>為完成商品預購訂單之處理、確認付款及寄送出貨相關事宜。</p>
+              <p>為辦理商品預購與購買訂單處理、付款確認、商品寄送、售後服務及客服聯繫。</p>
             </div>
             <div>
               <p className="font-bold text-stone-800 mb-1">二、蒐集個人資料類別</p>
-              <p>收件人姓名、手機號碼、收件地址（以下簡稱「個人資料」）。</p>
+              <p>收件人姓名、聯絡電話、行動電話、收件地址（以下簡稱「個人資料」）。</p>
             </div>
             <div>
               <p className="font-bold text-stone-800 mb-1">三、利用期間、地區、對象及方式</p>
               <ul className="space-y-1 list-disc list-inside text-stone-500">
-                <li>期間：訂單完成出貨後 6 個月內</li>
-                <li>地區：中華民國台灣地區</li>
-                <li>對象：{STORE.name}及委託配送之物流業者</li>
-                <li>方式：電子化處理，用於訂單出貨及客服聯繫</li>
+                <li>期間：訂單完成出貨及售後服務期滿後 6 個月內（或依法令規定之保存期限）。</li>
+                <li>地區：台灣。</li>
+                <li>對象：{STORE.name}及中華郵政物流配送。</li>
+                <li>方式：以自動化機器或其他非自動化之電子或紙本方式，用於訂單履約與客戶服務。</li>
               </ul>
             </div>
             <div>
               <p className="font-bold text-stone-800 mb-1">四、您的權利</p>
-              <p>依個資法第 3 條，您可向本攤位查詢、請求閱覽、補充或更正、停止蒐集使用或刪除您的個人資料。</p>
+              <p>依個人資料保護法第 3 條規定，您得向本攤位行使查詢或請求閱覽、請求製給複製本、請求補充或更正、請求停止蒐集、處理或利用、請求刪除之權利。</p>
             </div>
             <div>
               <p className="font-bold text-stone-800 mb-1">五、不提供個人資料之影響</p>
-              <p>若您不提供上述個人資料，將無法完成預購訂單及出貨寄送服務。</p>
+              <p>您得自由選擇是否提供個人資料，惟若拒絕提供，本攤位將無法提供您預購登記、訂單處理及商品寄送等相關服務。</p>
             </div>
           </div>
 
           <p className="text-xs text-stone-400 text-center">
-            點擊「同意並繼續」即表示您已閱讀並同意本聲明，授權本攤位依上述目的蒐集、處理及利用您的個人資料。
+            點擊「同意並繼續」即表示您已閱讀並同意本告知書，授權本攤位依上述目的蒐集、處理及利用您的個人資料。
           </p>
         </div>
 
@@ -250,7 +250,7 @@ export default function ProductList() {
         <div className="max-w-lg mx-auto px-4 pt-3 pb-2 flex items-center justify-between gap-2 flex-wrap">
           <div>
             <h1 className="text-base font-black text-stone-900 leading-tight">{STORE.name}</h1>
-            <p className="text-xs text-stone-400">掃碼下單 · 現場取貨付款</p>
+            <p className="text-xs text-stone-400">掃碼下單，免費寄到家</p>
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
