@@ -46,13 +46,13 @@ export function CartProvider({ children }) {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('booth_cart')
+      const saved = sessionStorage.getItem('booth_cart')
       if (saved) dispatch({ type: 'LOAD', items: JSON.parse(saved) })
     } catch {}
   }, [])
 
   useEffect(() => {
-    localStorage.setItem('booth_cart', JSON.stringify(items))
+    sessionStorage.setItem('booth_cart', JSON.stringify(items))
   }, [items])
 
   const total       = items.reduce((s, i) => s + i.price * i.quantity, 0)
