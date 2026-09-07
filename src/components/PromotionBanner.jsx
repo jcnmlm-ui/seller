@@ -46,6 +46,9 @@ export default function PromotionBanner() {
     ? Math.min(100, Math.max(0, ((total - prevThreshold) / (nextTier.threshold - prevThreshold)) * 100))
     : 100
 
+  const currentSoldOut = currentTier?.is_sold_out
+  const nextSoldOut    = nextTier?.is_sold_out
+
   return (
     <div className={`bg-gradient-to-r from-red-50 to-orange-50 border border-red-100 rounded-2xl px-4 py-3
       ${pulse ? 'promo-pulse' : ''}`}>
@@ -55,11 +58,15 @@ export default function PromotionBanner() {
           : <Gift size={15} className="text-red-500 flex-shrink-0" />
         }
         <span className="font-bold text-sm text-stone-800">
-          {allDone ? `已達最高門檻，可獲得「${currentTier.reward}」` : '滿額贈好禮'}
+          {allDone
+            ? (currentSoldOut
+                ? `已達門檻，但贈品「${currentTier.reward}」目前已送完，請洽工作人員`
+                : `已達最高門檻，可獲得「${currentTier.reward}」`)
+            : '滿額贈好禮'}
         </span>
       </div>
 
-      {/* 門檻梯子：任何時刻只有「目前這一階」亮起打勾，其餘（含已被超越的較低門檻）都是暗的 */}
+      {/* 門檻梯子：任何時刻只有「目前這一階」亮起打勾，其餘（含已被超越的較低門檻）都是暗的；已送完的一律以橘色標示 */}
       <div className="flex flex-wrap gap-1.5 mb-2">
         {tiers.map(t => {
           const isCurrent = t.id === currentTier?.id
@@ -68,13 +75,17 @@ export default function PromotionBanner() {
             <span
               key={t.id}
               className={`text-xs px-2 py-1 rounded-full font-semibold border leading-tight
-                ${isCurrent
-                  ? 'bg-green-100 text-green-700 border-green-200'
-                  : isNext
-                    ? 'bg-white text-red-600 border-red-300'
-                    : 'bg-stone-100 text-stone-400 border-stone-200'}`}
+                ${t.is_sold_out
+                  ? 'bg-orange-50 text-orange-500 border-orange-200'
+                  : isCurrent
+                    ? 'bg-green-100 text-green-700 border-green-200'
+                    : isNext
+                      ? 'bg-white text-red-600 border-red-300'
+                      : 'bg-stone-100 text-stone-400 border-stone-200'}`}
             >
-              {isCurrent ? '✓ ' : ''}NT${t.threshold.toLocaleString()} {t.reward}
+              {t.is_sold_out ? '⚠ ' : isCurrent ? '✓ ' : ''}
+              NT${t.threshold.toLocaleString()} <span className={t.is_sold_out ? 'line-through' : ''}>{t.reward}</span>
+              {t.is_sold_out ? '（已送完）' : ''}
             </span>
           )
         })}
@@ -89,7 +100,10 @@ export default function PromotionBanner() {
             />
           </div>
           <p className="text-xs text-stone-600">
-            還差 <span className="font-bold text-red-500">NT${(nextTier.threshold - total).toLocaleString()}</span> 即可獲得「{nextTier.reward}」
+            {nextSoldOut
+              ? <>還差 <span className="font-bold text-red-500">NT${(nextTier.threshold - total).toLocaleString()}</span> 可達下一門檻，但贈品「{nextTier.reward}」<span className="font-semibold text-orange-500">已送完</span></>
+              : <>還差 <span className="font-bold text-red-500">NT${(nextTier.threshold - total).toLocaleString()}</span> 即可獲得「{nextTier.reward}」</>
+            }
           </p>
         </>
       )}
