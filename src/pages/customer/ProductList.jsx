@@ -158,11 +158,12 @@ export default function ProductList() {
         if (!error) setProducts(data ?? [])
         setLoading(false)
       })
-    // 取得目前最高的滿額門檻（試手氣的目標金額）
+    // 取得目前最高的滿額門檻（試手氣的目標金額）；已送完的贈品不列入目標
     supabase
       .from('promotion_tiers')
       .select('threshold')
       .eq('is_active', true)
+      .eq('is_sold_out', false)
       .order('threshold', { ascending: false })
       .limit(1)
       .maybeSingle()
