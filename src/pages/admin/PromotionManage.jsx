@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft, Plus, Edit2, Trash2, ToggleLeft, ToggleRight,
-  Save, X, Gift,
+  Save, X, Gift, PackageX, PackageCheck,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { toast } from '../../components/StatusBadge'
@@ -78,6 +78,12 @@ export default function PromotionManage() {
     if (!error) { toast(t.is_active ? '已停用' : '已啟用', 'info'); load() }
   }
 
+  async function toggleSoldOut(t) {
+    const { error } = await supabase
+      .from('promotion_tiers').update({ is_sold_out: !t.is_sold_out }).eq('id', t.id)
+    if (!error) { toast(t.is_sold_out ? '已取消「送完」標記' : '已標記為「贈品送完」，前台將顯示提醒', 'info'); load() }
+  }
+
   async function handleDelete(t) {
     if (!confirm(`確認刪除「滿 NT$${t.threshold.toLocaleString()} ${t.reward}」這個門檻？此操作無法復原。`)) return
     const { error } = await supabase.from('promotion_tiers').delete().eq('id', t.id)
@@ -115,7 +121,7 @@ export default function PromotionManage() {
               <div
                 key={t.id}
                 className={`bg-white rounded-xl border overflow-hidden flex items-center gap-3 px-4 py-3
-                  ${t.is_active ? 'border-stone-200' : 'border-stone-200 opacity-60'}`}
+                  ${t.is_sold_out ? 'border-orange-200' : t.is_active ? 'border-stone-200' : 'border-stone-200 opacity-60'}`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -123,11 +129,21 @@ export default function PromotionManage() {
                     {!t.is_active && (
                       <span className="text-xs bg-stone-100 text-stone-500 px-2 py-0.5 rounded-full">已停用</span>
                     )}
+                    {t.is_sold_out && (
+                      <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-semibold">贈品已送完</span>
+                    )}
                   </div>
-                  <p className="text-sm text-stone-600 mt-0.5">{t.reward}</p>
+                  <p className={`text-sm mt-0.5 ${t.is_sold_out ? 'text-stone-400 line-through' : 'text-stone-600'}`}>{t.reward}</p>
                 </div>
 
                 <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={() => toggleSoldOut(t)}
+                    title={t.is_sold_out ? '取消「贈品送完」標記' : '標記為「贈品送完」'}
+                    className={`p-2 transition-colors ${t.is_sold_out ? 'text-orange-500 hover:text-orange-600' : 'text-stone-400 hover:text-orange-500'}`}
+                  >
+                    {t.is_sold_out ? <PackageX size={18} /> : <PackageCheck size={18} />}
+                  </button>
                   <button onClick={() => toggleActive(t)} className="p-2 text-stone-400 hover:text-stone-700 transition-colors">
                     {t.is_active
                       ? <ToggleRight size={22} className="text-green-500" />
