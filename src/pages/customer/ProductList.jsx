@@ -153,7 +153,8 @@ export default function ProductList() {
       .from('products')
       .select('*')
       .eq('is_available', true)
-      .order('created_at')
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true })
       .then(({ data, error }) => {
         if (!error) setProducts(data ?? [])
         setLoading(false)
