@@ -249,7 +249,19 @@ export default function ProductList() {
       {/* ── 固定頂部 Header ── */}
       <header className="flex-shrink-0 bg-white border-b border-stone-200 shadow-sm z-10">
         <div className="max-w-lg mx-auto px-4 pt-3 pb-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="min-w-0">
+            <h1 className="text-base font-black text-stone-900 leading-tight truncate">{STORE.name}</h1>
+            <p className="text-xs text-stone-400">掃碼下單，免費寄到家</p>
+          </div>
+
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <Link
+              to="/query"
+              className="text-xs text-stone-400 underline underline-offset-2 whitespace-nowrap hover:text-stone-600 transition-colors"
+            >
+              查詢訂單
+            </Link>
+
             <Link to="/checkout" className="relative flex-shrink-0">
               <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-sm transition-colors
                 ${count > 0 ? 'bg-red-500 text-white' : 'bg-stone-100 text-stone-600'}`}>
@@ -262,10 +274,6 @@ export default function ProductList() {
                 </span>
               )}
             </Link>
-            <div className="min-w-0">
-              <h1 className="text-base font-black text-stone-900 leading-tight truncate">{STORE.name}</h1>
-              <p className="text-xs text-stone-400">掃碼下單，免費寄到家</p>
-            </div>
           </div>
         </div>
 
