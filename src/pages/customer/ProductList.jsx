@@ -248,28 +248,8 @@ export default function ProductList() {
 
       {/* ── 固定頂部 Header ── */}
       <header className="flex-shrink-0 bg-white border-b border-stone-200 shadow-sm z-10">
-        <div className="max-w-lg mx-auto px-4 pt-3 pb-2 flex items-center justify-between gap-2 flex-wrap">
-          <div>
-            <h1 className="text-base font-black text-stone-900 leading-tight">{STORE.name}</h1>
-            <p className="text-xs text-stone-400">掃碼下單，免費寄到家</p>
-          </div>
-
-          <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
-            {/* 選擇困難嗎？一鍵滿額 */}
-            {luckyTarget && total < luckyTarget && (
-              <button
-                onClick={handleLuckyDraw}
-                disabled={luckyDrawing}
-                title="選擇困難嗎？一鍵滿額！"
-                className="flex items-center gap-1 px-2.5 py-2 rounded-xl font-bold text-xs text-white
-                  bg-gradient-to-r from-amber-400 to-orange-500 shadow-sm
-                  active:scale-95 transition-transform disabled:opacity-60 whitespace-nowrap"
-              >
-                <Sparkles size={14} className={luckyDrawing ? 'animate-spin' : ''} />
-                {luckyDrawing ? '小精靈選購中…' : '選擇困難嗎？一鍵滿額！'}
-              </button>
-            )}
-
+        <div className="max-w-lg mx-auto px-4 pt-3 pb-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <Link to="/checkout" className="relative flex-shrink-0">
               <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-sm transition-colors
                 ${count > 0 ? 'bg-red-500 text-white' : 'bg-stone-100 text-stone-600'}`}>
@@ -282,19 +262,40 @@ export default function ProductList() {
                 </span>
               )}
             </Link>
+            <div className="min-w-0">
+              <h1 className="text-base font-black text-stone-900 leading-tight truncate">{STORE.name}</h1>
+              <p className="text-xs text-stone-400">掃碼下單，免費寄到家</p>
+            </div>
           </div>
         </div>
 
-        {/* 搜尋列 */}
+        {/* 搜尋列 + 一鍵滿額 */}
         <div className="max-w-lg mx-auto px-4 pb-3">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-            <input
-              className="input pl-9 text-sm py-2.5"
-              placeholder="搜尋商品名稱或條碼…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+              <input
+                className="input pl-9 text-sm py-2.5 w-full"
+                placeholder="搜尋商品名稱或條碼…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+
+            {/* 選擇困難嗎？一鍵滿額（滿額後自動消失，搜尋欄會回復全寬） */}
+            {luckyTarget && total < luckyTarget && (
+              <button
+                onClick={handleLuckyDraw}
+                disabled={luckyDrawing}
+                title="選擇困難嗎？一鍵滿額！"
+                className="flex items-center gap-1 px-2.5 py-2.5 rounded-xl font-bold text-xs text-white
+                  bg-gradient-to-r from-amber-400 to-orange-500 shadow-sm
+                  active:scale-95 transition-transform disabled:opacity-60 whitespace-nowrap flex-shrink-0"
+              >
+                <Sparkles size={14} className={luckyDrawing ? 'animate-spin' : ''} />
+                {luckyDrawing ? '小精靈選購中…' : '一鍵滿額！'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -337,13 +338,6 @@ export default function ProductList() {
               ))}
             </div>
           )}
-
-          {/* 查詢已有訂單 */}
-          <div className="mt-6 text-center">
-            <Link to="/query" className="text-xs text-stone-400 underline underline-offset-2">
-              查詢已有訂單
-            </Link>
-          </div>
         </div>
       </div>
 
