@@ -241,8 +241,17 @@ export default function Checkout() {
                   <p className="text-xs text-stone-400">NT${item.price.toLocaleString()} / 件</p>
                 </div>
 
-                {/* 數量調整 + 小計 */}
+                {/* 小計 + 數量調整 */}
                 <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* 小計 */}
+                  <div className="text-right">
+                    <p className="font-bold text-stone-900 text-sm">
+                      NT${(item.price * item.quantity).toLocaleString()}
+                    </p>
+                    {(item.stamp_amount > 0) && (
+                      <p className="text-xs text-blue-500">含郵票 NT${(item.stamp_amount * item.quantity).toLocaleString()}</p>
+                    )}
+                  </div>
                   {/* 數量 +/- */}
                   <div className="flex items-center gap-1 bg-stone-100 rounded-xl px-1 py-1">
                     <button
@@ -256,15 +265,6 @@ export default function Checkout() {
                       className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-600 hover:bg-white active:scale-90 transition-all font-bold"
                       onClick={() => dispatch({ type: 'UPDATE_QTY', id: item.id, qty: item.quantity + 1 })}
                     >+</button>
-                  </div>
-                  {/* 小計 */}
-                  <div className="text-right">
-                    <p className="font-bold text-stone-900 text-sm">
-                      NT${(item.price * item.quantity).toLocaleString()}
-                    </p>
-                    {(item.stamp_amount > 0) && (
-                      <p className="text-xs text-blue-500">含郵票 NT${(item.stamp_amount * item.quantity).toLocaleString()}</p>
-                    )}
                   </div>
                 </div>
               </div>
