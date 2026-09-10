@@ -84,7 +84,8 @@ export default function ReportsDashboard() {
   const avgOrder     = orders.length ? totalRevenue / orders.length : 0
   const totalQty     = items.reduce((s, i) => s + i.quantity, 0)
 
-  // 付款方式分布
+  // 付款方式分布（依訂單登記的付款方式，僅供參考——刷卡/電子支付訂單若含郵票商品，
+  // 郵票金額規定須另收現金，實際現金請看下方「實際現金/非現金」區塊）
   const payStats = ['cash','card','taiwan_pay'].map(pm => {
     const sub = orders.filter(o => o.payment_method === pm)
     return {
@@ -93,6 +94,31 @@ export default function ReportsDashboard() {
       amount: sub.reduce((s, o) => s + Number(o.total_amount), 0),
     }
   }).filter(p => p.count > 0)
+
+  // 每筆訂單的郵票金額（郵票規定須以現金收取，即使整筆選的是刷卡／電子支付）
+  const stampByOrder = {}
+  for (const it of items) {
+    stampByOrder[it.order_id] = (stampByOrder[it.order_id] ?? 0) + (Number(it.stamp_amount) || 0) * it.quantity
+  }
+
+  // 拆出每筆訂單「實際現金」與「實際非現金」金額
+  //   付款方式＝現金 → 全額都是現金
+  //   付款方式＝刷卡／電子支付 → 郵票金額仍是現金，其餘才是刷卡／電子支付
+  //   付款方式未登記 → 無法判斷，歸入「未登記」，不計入現金/非現金合計
+  function splitCash(o) {
+    const stamp = stampByOrder[o.id] ?? 0
+    const amt   = Number(o.total_amount)
+    if (o.payment_method === 'cash') return { cash: amt, nonCash: 0, unknown: false }
+    if (!o.payment_method)           return { cash: 0,   nonCash: 0, unknown: true  }
+    return { cash: stamp, nonCash: amt - stamp, unknown: false }
+  }
+
+  let cashActual = 0, nonCashActual = 0, unknownAmount = 0, unknownCount = 0
+  for (const o of orders) {
+    const sp = splitCash(o)
+    if (sp.unknown) { unknownAmount += Number(o.total_amount); unknownCount++ }
+    else { cashActual += sp.cash; nonCashActual += sp.nonCash }
+  }
 
   // 商品銷售排行
   const prodMap = {}
@@ -262,6 +288,33 @@ export default function ReportsDashboard() {
                 ))}
               </div>
 
+              {/* ── 實際現金 / 非現金金額（含郵票須現金規則拆分後的正確金額）── */}
+              <div className="bg-white rounded-xl border-2 border-emerald-200 overflow-hidden">
+                <div className="px-5 py-3 border-b border-emerald-100 bg-emerald-50">
+                  <h2 className="font-bold text-emerald-800">💰 實際現金／非現金金額</h2>
+                  <p className="text-xs text-emerald-600 mt-0.5">
+                    已依「個人化郵票金額須現金付款」規則拆算：刷卡／電子支付訂單若含郵票商品，郵票部分仍計入現金。
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 divide-x divide-stone-100">
+                  <div className="px-5 py-4 text-center">
+                    <div className="text-xl mb-1">💵</div>
+                    <div className="text-xs text-stone-500 mb-1">實際應收現金</div>
+                    <div className="font-black text-2xl text-emerald-600">{fmt(cashActual)}</div>
+                  </div>
+                  <div className="px-5 py-4 text-center">
+                    <div className="text-xl mb-1">💳</div>
+                    <div className="text-xs text-stone-500 mb-1">實際刷卡／電子支付</div>
+                    <div className="font-black text-2xl text-stone-700">{fmt(nonCashActual)}</div>
+                  </div>
+                </div>
+                {unknownCount > 0 && (
+                  <div className="px-5 py-2.5 bg-stone-50 border-t border-stone-100 text-xs text-stone-500">
+                    ❓ 另有 {unknownCount} 筆（NT${unknownAmount.toLocaleString()}）付款方式未登記，未計入上方金額。
+                  </div>
+                )}
+              </div>
+
               {/* ── 商品銷售排行 ── */}
               <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
                 <div className="px-5 py-3 border-b border-stone-100 flex items-center justify-between">
@@ -327,16 +380,27 @@ export default function ReportsDashboard() {
                 <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
                   <div className="px-5 py-3 border-b border-stone-100">
                     <h2 className="font-bold text-stone-900">💳 付款方式分布</h2>
+                    <p className="text-xs text-stone-400 mt-0.5">依訂單登記的付款方式（金額為訂單全額，非拆分後的現金/非現金）</p>
                   </div>
                   <div className="grid grid-cols-3 divide-x divide-stone-100">
-                    {payStats.map(p => (
-                      <div key={p.pm} className="px-5 py-4 text-center">
-                        <div className="text-xl mb-1">{p.label.slice(0,2)}</div>
-                        <div className="font-black text-stone-900">{p.count} 筆</div>
-                        <div className="text-sm text-stone-500">{fmt(p.amount)}</div>
-                        <div className="text-xs text-stone-400 mt-0.5">{pct(p.count, orders.length)}%</div>
-                      </div>
-                    ))}
+                    {payStats.map(p => {
+                      // 該付款方式下，實際內含的現金部分（郵票金額，刷卡/電子支付時仍須現金收取）
+                      const sub = orders.filter(o => o.payment_method === p.pm)
+                      const stampInside = p.pm === 'cash' ? 0 : sub.reduce((s, o) => s + (stampByOrder[o.id] ?? 0), 0)
+                      return (
+                        <div key={p.pm} className="px-5 py-4 text-center">
+                          <div className="text-xl mb-1">{p.label.slice(0,2)}</div>
+                          <div className="font-black text-stone-900">{p.count} 筆</div>
+                          <div className="text-sm text-stone-500">{fmt(p.amount)}</div>
+                          <div className="text-xs text-stone-400 mt-0.5">{pct(p.count, orders.length)}%</div>
+                          {stampInside > 0 && (
+                            <div className="text-xs text-emerald-600 mt-1.5 bg-emerald-50 rounded-lg px-2 py-1">
+                              其中現金(郵票) {fmt(stampInside)}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                     {payStats.length < 3 && (
                       orders.filter(o => !o.payment_method).length > 0 && (
                         <div className="px-5 py-4 text-center">
@@ -410,12 +474,23 @@ export default function ReportsDashboard() {
                   ].map(s => {
                     const sub = orders.filter(o => (o.source ?? 'online') === s.key)
                     const amt = sub.reduce((a, o) => a + Number(o.total_amount), 0)
+                    let subCash = 0, subNonCash = 0
+                    for (const o of sub) {
+                      const sp = splitCash(o)
+                      if (!sp.unknown) { subCash += sp.cash; subNonCash += sp.nonCash }
+                    }
                     return (
                       <div key={s.key} className={`flex-1 ${s.color} rounded-xl p-4`}>
                         <p className="text-sm font-bold mb-1">{s.label}</p>
                         <p className="font-black text-2xl">{sub.length} 筆</p>
                         <p className="text-sm mt-0.5">NT${amt.toLocaleString()}</p>
                         <p className="text-xs opacity-70 mt-0.5">{pct(sub.length, orders.length)}%</p>
+                        {sub.length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-black/10 text-xs space-y-0.5">
+                            <p>💵 現金 <strong>{fmt(subCash)}</strong></p>
+                            <p>💳 非現金 <strong>{fmt(subNonCash)}</strong></p>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -452,6 +527,9 @@ export default function ReportsDashboard() {
                           <td className="px-3 py-2 font-medium text-stone-800">{o.receiver_name}</td>
                           <td className="px-3 py-2 text-xs text-stone-400">
                             {PAYMENT_LABELS[o.payment_method] ?? '—'}
+                            {o.payment_method && o.payment_method !== 'cash' && (stampByOrder[o.id] ?? 0) > 0 && (
+                              <div className="text-emerald-600 mt-0.5">內含現金 {fmt(stampByOrder[o.id])}</div>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-right font-bold">{fmt(o.total_amount)}</td>
                           <td className="px-3 py-2">
