@@ -517,6 +517,7 @@ export default function Checkout() {
         <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4 text-sm text-yellow-800">
           <p className="font-bold mb-1">💳 付款方式</p>
           <p>下單完成後，請至攤位出示訂單畫面，可使用<strong>{enabledPayMethods.map(k => PAYMENT_LABELS[k]?.slice(2)).join('、')}</strong>付款後完成結帳。</p>
+          <p>※ 含"郵票"之「個人化郵票」商品，郵票金額須以"現金"付款 ※</p>
         </div>
       </div>
 
