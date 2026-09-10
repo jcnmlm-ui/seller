@@ -14,6 +14,7 @@ export default function BoothDashboard() {
   const [order, setOrder]           = useState(null)
   const [items, setItems]           = useState([])
   const [loading, setLoading]       = useState(false)
+  const [phoneResults, setPhoneResults] = useState([])  // 手機模糊搜尋的多筆結果，供人工預覽挑選
   const [confirming, setConfirming] = useState(false)
   const [payMethod, setPayMethod]   = useState('cash')
   const [todayStats, setTodayStats] = useState({ count: 0, total: 0 })
@@ -46,11 +47,26 @@ export default function BoothDashboard() {
     })
   }
 
+  // 把查到的訂單完整載入（含商品明細）
+  async function loadOrderRecord(ord) {
+    setOrder(ord); setPayMethod('cash'); setEditingPayment(false); setPhoneResults([])
+    const { data: its } = await supabase.from('order_items').select('*').eq('order_id', ord.id)
+    setItems(its ?? [])
+  }
+
+  // 從手機模糊搜尋的預覽清單中，點選其中一筆帶入
+  async function selectPhoneResult(m) {
+    setLoading(true)
+    const { data: ord } = await supabase.from('orders').select('*').eq('id', m.id).single()
+    setLoading(false)
+    if (ord) { setQuery(ord.order_no); await loadOrderRecord(ord) }
+  }
+
   // ── 搜尋 / 確認收款（Enter 兩用）────────────────────────
     async function handleSearch(e) {
       e.preventDefault()
     
-      // 如果輸入欄有內容（代表剛刷讀進來），優先查詢，不觸發確認收款
+      // 如果輸入欄有內容（代表剛刷讀進來或人工輸入），優先查詢，不觸發確認收款
       if (query.trim()) {
         // 有內容就直接往下查詢，不管目前是否有待收款訂單
       } else if (order?.status === 'pending' && !confirming) {
@@ -59,25 +75,47 @@ export default function BoothDashboard() {
       } else {
         return
       }
-    // 如果掃到的是完整網址，自動抽出訂單號
     const raw = query.trim()
-    const match = raw.match(/ORD-[\d-]+/)
-    const q = match ? match[0] : raw.toUpperCase()
-    if (!q) return
-    setLoading(true); setOrder(null); setItems([]); setEditingPayment(false)
-    const { data: ord } = await supabase.from('orders').select('*').eq('order_no', q).single()
-    if (ord) {
-      setOrder(ord); setPayMethod('cash')
-      const { data: its } = await supabase.from('order_items').select('*').eq('order_id', ord.id)
-      setItems(its ?? [])
+    if (!raw) return
+
+    // 如果掃到的是完整網址或看起來是訂單號（ORD-XXXXXXXX-XXXX），走原本的精確查詢
+    const match = raw.match(/ORD-[\d-]+/i)
+    const looksLikeOrderNo = !!match || /^ord-/i.test(raw)
+
+    setLoading(true); setOrder(null); setItems([]); setEditingPayment(false); setPhoneResults([])
+
+    if (looksLikeOrderNo) {
+      const q = (match ? match[0] : raw).toUpperCase()
+      const { data: ord } = await supabase.from('orders').select('*').eq('order_no', q).single()
+      if (ord) await loadOrderRecord(ord)
+      else toast('查無此訂單，請確認訂單號碼', 'error')
+      setLoading(false)
+      return
+    }
+
+    // 備用查詢：用收件人手機模糊搜尋（客人忘記訂單號時使用）
+    const { data: matches } = await supabase
+      .from('orders')
+      .select('id, order_no, receiver_name, receiver_phone, total_amount, status, created_at')
+      .ilike('receiver_phone', `%${raw}%`)
+      .order('created_at', { ascending: false })
+      .limit(20)
+
+    if (!matches || matches.length === 0) {
+      toast('查無符合的訂單，請確認手機號碼或訂單號', 'error')
+    } else if (matches.length === 1) {
+      // 只有一筆，直接帶入
+      const { data: ord } = await supabase.from('orders').select('*').eq('id', matches[0].id).single()
+      if (ord) await loadOrderRecord(ord)
     } else {
-      toast('查無此訂單，請確認訂單號碼', 'error')
+      // 多筆訂單，先讓人工預覽再確認帶入哪一筆
+      setPhoneResults(matches)
     }
     setLoading(false)
   }
 
   function handleClear() {
-    setQuery(''); setOrder(null); setItems([]); setEditingPayment(false)
+    setQuery(''); setOrder(null); setItems([]); setEditingPayment(false); setPhoneResults([])
     inputRef.current?.focus()
   }
 
@@ -143,7 +181,7 @@ export default function BoothDashboard() {
   const inputHint = order?.status === 'pending'
     ? '💡 確認付款方式後按 ↵ Enter 或條碼槍確認收款'
     : order ? '💡 輸入下一筆訂單號或掃描 QR Code'
-    : '💡 掃描顧客手機上的 QR Code 後，條碼槍會自動填入訂單號'
+    : '💡 掃描顧客手機上的 QR Code；若客人忘記訂單號，也可輸入收件人手機號碼模糊搜尋（備用方式）'
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-stone-100">
@@ -183,7 +221,7 @@ export default function BoothDashboard() {
           <div className="flex-shrink-0 px-5 pt-4 pb-3 border-b border-stone-100 bg-stone-50">
             <form onSubmit={handleSearch} className="flex gap-2">
               <input ref={inputRef} className="input flex-1 font-mono text-sm"
-                placeholder="ORD-20240602-0001" value={query}
+                placeholder="ORD-20240602-0001 或輸入手機號碼" value={query}
                 onChange={e => setQuery(e.target.value)} autoComplete="off" />
               {(query || order) && (
                 <button type="button" onClick={handleClear}
@@ -203,10 +241,50 @@ export default function BoothDashboard() {
 
           {/* 商品清單（可捲動）*/}
           <div className="flex-1 overflow-y-auto px-5 py-4">
-            {!order ? (
+            {!order && phoneResults.length > 0 ? (
+              // 手機模糊搜尋，多筆結果，先預覽再確認帶入
+              <div>
+                <p className="text-xs font-semibold text-stone-400 tracking-widest mb-3">
+                  找到 {phoneResults.length} 筆符合的訂單，請確認要帶入哪一筆
+                </p>
+                <div className="space-y-2">
+                  {phoneResults.map(m => {
+                    const statusLabel = { pending:'待收款', paid:'已付款', picking:'揀貨中', packed:'已包裝', shipped:'已出貨', delivered:'已送達' }[m.status] ?? m.status
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => selectPhoneResult(m)}
+                        className="w-full text-left bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-xl px-4 py-3 transition-colors"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-xs text-stone-500">{m.order_no}</span>
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full
+                            ${m.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
+                            {statusLabel}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                          <div>
+                            <p className="font-bold text-stone-900 text-sm">{m.receiver_name}</p>
+                            <p className="text-xs text-stone-400">{m.receiver_phone}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-black text-stone-900">NT${Number(m.total_amount).toLocaleString()}</p>
+                            <p className="text-xs text-stone-400">
+                              {new Date(m.created_at).toLocaleDateString('zh-TW', { month:'2-digit', day:'2-digit' })}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : !order ? (
               <div className="flex flex-col items-center justify-center h-full text-stone-300 gap-3">
                 <Search size={40} strokeWidth={1} />
                 <p className="text-sm">掃描或輸入訂單號碼</p>
+                <p className="text-xs text-stone-300">也可輸入手機號碼模糊搜尋</p>
               </div>
             ) : (
               <>
