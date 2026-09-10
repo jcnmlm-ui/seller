@@ -368,6 +368,25 @@ export default function CashierPage() {
                 </div>
               </div>
 
+              {/* 選了非現金付款、但購物車含郵票商品時，明顯提醒收款人員 */}
+              {(() => {
+                const stampTotal = cartItems.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.qty, 0)
+                if (payMethod === 'cash' || stampTotal <= 0) return null
+                return (
+                  <div className="rounded-2xl border-2 border-amber-400 bg-amber-50 px-5 py-4 flex items-start gap-3 animate-pulse">
+                    <span className="text-2xl flex-shrink-0">⚠️</span>
+                    <div>
+                      <p className="font-black text-amber-800 text-base leading-snug">
+                        本筆含個人化郵票商品，郵票金額 NT${stampTotal.toLocaleString()} 須收現金！
+                      </p>
+                      <p className="text-amber-600 text-sm mt-1">
+                        請向客人說明：{PAYMENT_LABELS[payMethod]?.slice(2)}僅能刷「NT${(total - stampTotal).toLocaleString()}」，郵票金額須另收現金 NT${stampTotal.toLocaleString()}。
+                      </p>
+                    </div>
+                  </div>
+                )
+              })()}
+
               {/* 確認按鈕 */}
               <button
                 onClick={handleConfirm}
