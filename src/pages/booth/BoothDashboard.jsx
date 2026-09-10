@@ -15,6 +15,7 @@ export default function BoothDashboard() {
   const [items, setItems]           = useState([])
   const [loading, setLoading]       = useState(false)
   const [phoneResults, setPhoneResults] = useState([])  // 手機模糊搜尋的多筆結果，供人工預覽挑選
+  const [phoneResultItems, setPhoneResultItems] = useState({}) // { [order_id]: [{product_name, quantity}] }，供預覽清單顯示購買品項
   const [confirming, setConfirming] = useState(false)
   const [payMethod, setPayMethod]   = useState('cash')
   const [todayStats, setTodayStats] = useState({ count: 0, total: 0 })
@@ -49,7 +50,7 @@ export default function BoothDashboard() {
 
   // 把查到的訂單完整載入（含商品明細）
   async function loadOrderRecord(ord) {
-    setOrder(ord); setPayMethod('cash'); setEditingPayment(false); setPhoneResults([])
+    setOrder(ord); setPayMethod('cash'); setEditingPayment(false); setPhoneResults([]); setPhoneResultItems({})
     const { data: its } = await supabase.from('order_items').select('*').eq('order_id', ord.id)
     setItems(its ?? [])
   }
@@ -108,14 +109,23 @@ export default function BoothDashboard() {
       const { data: ord } = await supabase.from('orders').select('*').eq('id', matches[0].id).single()
       if (ord) await loadOrderRecord(ord)
     } else {
-      // 多筆訂單，先讓人工預覽再確認帶入哪一筆
+      // 多筆訂單，先讓人工預覽再確認帶入哪一筆（含品項預覽）
       setPhoneResults(matches)
+      const { data: itemRows } = await supabase
+        .from('order_items')
+        .select('order_id, product_name, quantity')
+        .in('order_id', matches.map(m => m.id))
+      const grouped = {}
+      for (const it of itemRows ?? []) {
+        (grouped[it.order_id] ??= []).push(it)
+      }
+      setPhoneResultItems(grouped)
     }
     setLoading(false)
   }
 
   function handleClear() {
-    setQuery(''); setOrder(null); setItems([]); setEditingPayment(false); setPhoneResults([])
+    setQuery(''); setOrder(null); setItems([]); setEditingPayment(false); setPhoneResults([]); setPhoneResultItems({})
     inputRef.current?.focus()
   }
 
@@ -275,6 +285,11 @@ export default function BoothDashboard() {
                             </p>
                           </div>
                         </div>
+                        {(phoneResultItems[m.id]?.length > 0) && (
+                          <p className="mt-1.5 pt-1.5 border-t border-stone-200 text-stone-400 truncate" style={{ fontSize: '8px' }}>
+                            {phoneResultItems[m.id].map(it => `${it.product_name} x${it.quantity}`).join('、')}
+                          </p>
+                        )}
                       </button>
                     )
                   })}
