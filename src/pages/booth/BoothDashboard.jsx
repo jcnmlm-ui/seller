@@ -197,27 +197,27 @@ export default function BoothDashboard() {
     <div className="h-screen flex flex-col overflow-hidden bg-stone-100">
 
       {/* ── Header ─────────────────────────────────────────── */}
-      <header className="flex-shrink-0 bg-stone-900 text-white px-5 py-3 flex items-center justify-between">
+      <header className="flex-shrink-0 text-white px-5 py-3 flex items-center justify-between" style={{ backgroundColor: '#33A6B8' }}>
         <div>
           <h1 className="font-black text-base leading-tight">{STORE.name}</h1>
-          <p className="text-xs text-stone-400">攤位收款介面</p>
+          <p className="text-xs text-white/70">攤位收款介面</p>
         </div>
         <div className="flex items-center gap-2">
           <Link to="/cashier" title="快速鍵 F3"
-            className="flex items-center gap-1.5 text-stone-300 hover:text-white text-xs border border-stone-700 hover:border-stone-500 rounded-lg px-3 py-2 transition-colors">
+            className="flex items-center gap-1.5 text-white/80 hover:text-white text-xs border border-white/25 hover:border-white/50 rounded-lg px-3 py-2 transition-colors">
             🏪 現場收銀台
-            <span className="text-[10px] bg-stone-700 text-stone-300 px-1.5 py-0.5 rounded font-mono leading-none">F3</span>
+            <span className="text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded font-mono leading-none">F3</span>
           </Link>
 
           <Link to="/admin"
-            className="flex items-center gap-1.5 text-stone-300 hover:text-white text-xs border border-stone-700 hover:border-stone-500 rounded-lg px-3 py-2 transition-colors">
+            className="flex items-center gap-1.5 text-white/80 hover:text-white text-xs border border-white/25 hover:border-white/50 rounded-lg px-3 py-2 transition-colors">
             <Monitor size={13} /> 出貨管理後台
           </Link>
-          <div className="text-right text-xs text-stone-400 border-l border-stone-700 pl-3 ml-1">
+          <div className="text-right text-xs text-white/70 border-l border-white/25 pl-3 ml-1">
             <p>今日 {todayStats.count} 筆</p>
             <p className="text-white font-bold text-sm">NT${todayStats.total.toLocaleString()}</p>
           </div>
-          <button onClick={signOut} className="text-stone-400 hover:text-white p-2 ml-1">
+          <button onClick={signOut} className="text-white/70 hover:text-white p-2 ml-1">
             <LogOut size={16} />
           </button>
         </div>
