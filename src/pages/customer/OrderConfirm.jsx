@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { supabase } from '../../lib/supabase'
 import { STATUS_CONFIG, PAYMENT_LABELS } from '../../config/store'
 import { useEnabledPaymentMethods } from '../../hooks/useEnabledPaymentMethods'
+import { Wallet } from 'lucide-react'
 
 // 郵局包裹追蹤網址
 const POST_TRACK_URL = 'https://postserv.post.gov.tw/pstatus/TrackMail.jsp?id='
@@ -142,7 +143,9 @@ export default function OrderConfirm() {
         ) : (
           order.payment_method && (
             <div className="card p-4 flex items-center gap-3">
-              <span className="text-xl">{PAYMENT_LABELS[order.payment_method]?.slice(0,2)}</span>
+              <div className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center flex-shrink-0">
+                <Wallet size={18} className="text-stone-500" />
+              </div>
               <div>
                 <p className="text-xs text-stone-400">付款方式</p>
                 <p className="font-bold text-stone-800">{PAYMENT_LABELS[order.payment_method]}</p>
