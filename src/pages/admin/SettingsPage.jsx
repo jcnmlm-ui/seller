@@ -94,7 +94,7 @@ export default function SettingsPage() {
         {/* 付款方式 */}
         <div className="card p-5 space-y-1">
           <h2 className="font-bold text-stone-900 border-b border-stone-100 pb-2 mb-3">
-            💳 付款方式
+            🧾 付款方式
           </h2>
           <p className="text-xs text-stone-400 mb-3">
             開啟的方式會出現在顧客結帳說明、攤位收款／收銀台的可選按鈕上；關閉的不會顯示，但不影響過去已經用該方式付款的訂單紀錄。

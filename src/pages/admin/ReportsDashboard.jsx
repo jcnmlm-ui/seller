@@ -379,7 +379,7 @@ export default function ReportsDashboard() {
               {payStats.length > 0 && (
                 <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
                   <div className="px-5 py-3 border-b border-stone-100">
-                    <h2 className="font-bold text-stone-900">💳 付款方式分布</h2>
+                    <h2 className="font-bold text-stone-900">🧾 付款方式分布</h2>
                     <p className="text-xs text-stone-400 mt-0.5">依訂單登記的付款方式（金額為訂單全額，非拆分後的現金/非現金）</p>
                   </div>
                   <div className="grid grid-cols-3 divide-x divide-stone-100">
