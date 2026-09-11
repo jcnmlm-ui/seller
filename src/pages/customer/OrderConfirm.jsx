@@ -53,6 +53,7 @@ export default function OrderConfirm() {
   const isPending  = order.status === 'pending'
   const isShipped  = order.status === 'shipped' || order.status === 'delivered'
   const qrValue    = window.location.href
+  const stampTotal = items.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.quantity, 0)
 
   return (
     <div className="min-h-screen bg-stone-50 pb-8">
@@ -129,6 +130,14 @@ export default function OrderConfirm() {
                 </span>
               ))}
             </div>
+            {stampTotal > 0 && (
+              <div className="mt-3 pt-3 border-t border-stone-100 flex items-start gap-2">
+                <span className="text-base flex-shrink-0">⚠️</span>
+                <p className="text-xs text-amber-700 leading-relaxed">
+                  本單含<strong>個人化郵票</strong>商品，郵票金額 <strong>NT${stampTotal.toLocaleString()}</strong> 須以<strong>現金</strong>付款。
+                </p>
+              </div>
+            )}
           </div>
         ) : (
           order.payment_method && (
