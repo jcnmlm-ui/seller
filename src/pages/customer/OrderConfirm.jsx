@@ -121,7 +121,7 @@ export default function OrderConfirm() {
         {/* 付款方式 */}
         {isPending ? (
           <div className="card p-4">
-            <p className="text-sm font-bold text-stone-700 mb-2">💳 可使用付款方式</p>
+            <p className="text-sm font-bold text-stone-700 mb-2">🧾 可使用付款方式</p>
             <div className="flex gap-2">
               {Object.entries(PAYMENT_LABELS)
                 .filter(([k]) => enabledPayMethods.includes(k))
