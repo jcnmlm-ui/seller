@@ -10,13 +10,15 @@ import ShippingSlipA4 from '../../components/print/ShippingSlipA4'
 import WaybillA6 from '../../components/print/WaybillA6'
 import {
   LogOut, Package, Search, Printer, ChevronDown, ChevronUp,
-  RefreshCw, X, Truck, Edit2, CheckSquare, Square,
+  RefreshCw, X, Truck, Edit2, CheckSquare, Square, Loader2,
 } from 'lucide-react'
 
 const TABS = ['paid', 'picking', 'packed', 'shipped']
 const LOCAL_PRINT_API = 'http://127.0.0.1:3001'
 const TAB_LABELS = { paid: '待揀貨', picking: '揀貨中', packed: '已包裝', shipped: '已出貨' }
 const BATCH_TABS = ['paid', 'picking', 'shipped']
+// 批次操作：各分頁按下批次按鈕後要更新成的狀態
+const BULK_NEXT_STATUS = { paid: 'picking', picking: 'packed', shipped: 'delivered' }
 
 
 // ── 揀貨清單 Modal ───────────────────────────────────────
@@ -190,8 +192,8 @@ function TrackingModal({ order, mode, continuousMode, onContinuousModeChange, on
             <label className="label">追蹤號碼（選填）</label>
             <input
               ref={inputRef}
-              className="input font-mono tracking-widest"
-              placeholder="例：RO123456789TW"
+              className="input font-mono tracking-widest placeholder:font-sans placeholder:tracking-normal"
+              placeholder="請輸入包裹或函件14碼或20碼"
               value={trackingNo}
               onChange={e => setTrackingNo(e.target.value.toUpperCase())}
               onKeyDown={handleKeyDown}
@@ -262,6 +264,8 @@ export default function OrderDashboard() {
   const [printMode, setPrintMode]       = useState('checking')
   const [senderSettings, setSenderSettings] = useState(null)
   const [pickingList, setPickingList]   = useState(null) // { orders, items }
+  const [bulkLoading, setBulkLoading]       = useState(false) // 批次更新處理中
+  const [pickingLoading, setPickingLoading] = useState(false) // 揀貨清單彙整中
   const printRef  = useRef(null)
   const autoPrint = useRef({ active: false })
   const { signOut } = useAuth()
@@ -383,44 +387,71 @@ export default function OrderDashboard() {
   function clearSelection() { setSelected(new Set()) }
 
   // ── 批次更新 ─────────────────────────────────────────────
+  // 一次送出單一請求更新所有勾選的訂單（原本是逐筆等待，筆數多時要等很久）；
+  // 處理中按鈕會顯示「處理中…」並鎖住，避免重複點擊
   async function handleBulkUpdate() {
-    const nextStatus = filter === 'paid' ? 'picking' : filter === 'picking' ? 'packed' : 'delivered'
-    const ids = [...selected]
-    let successCount = 0
-    for (const id of ids) {
-      const order = orders.find(o => o.id === id)
-      if (!order) continue
-      const { error } = await supabase.from('orders')
-        .update({ status: nextStatus }).eq('id', id)
-      if (!error) successCount++
+    if (bulkLoading) return
+    const nextStatus = BULK_NEXT_STATUS[filter]
+    const ids = orders.filter(o => selected.has(o.id)).map(o => o.id)
+    if (!nextStatus || ids.length === 0) return
+
+    setBulkLoading(true)
+    try {
+      const { data, error } = await supabase.from('orders')
+        .update({ status: nextStatus }).in('id', ids).select('id')
+      if (error) throw error
+      const successCount = data?.length ?? 0
+      if (successCount === 0) throw new Error('no rows updated')
+      const failCount = ids.length - successCount
+      toast(
+        failCount > 0
+          ? `已批次更新 ${successCount} 筆為「${STATUS_CONFIG[nextStatus]?.label}」，另有 ${failCount} 筆未更新，請重新整理確認`
+          : `✓ 已批次更新 ${successCount} 筆訂單為「${STATUS_CONFIG[nextStatus]?.label}」`,
+        failCount > 0 ? 'info' : 'success',
+        4000
+      )
+      clearSelection()
+    } catch (err) {
+      console.error('批次更新失敗', err)
+      toast('批次更新失敗，請稍後再試', 'error', 4000)
+    } finally {
+      setBulkLoading(false)
+      loadOrders()
     }
-    toast(`✓ 已批次更新 ${successCount} 筆訂單為「${STATUS_CONFIG[nextStatus]?.label}」`, 'success', 4000)
-    clearSelection()
-    loadOrders()
   }
 
 
   // ── 揀貨清單：彙整所選訂單的商品 ────────────────────────
   async function openPickingList() {
-    const selectedOrderObjs = orders.filter(o => selected.has(o.id))
-    const ids = selectedOrderObjs.map(o => o.id)
-    const { data: allItems } = await supabase
-      .from('order_items').select('*').in('order_id', ids)
-    const agg = {}
-    for (const item of (allItems ?? [])) {
-      if (!agg[item.product_name]) {
-        agg[item.product_name] = {
-          name: item.product_name,
-          barcode: item.product_barcode ?? '',
-          qty: 0,
+    if (pickingLoading) return
+    setPickingLoading(true)
+    try {
+      const selectedOrderObjs = orders.filter(o => selected.has(o.id))
+      const ids = selectedOrderObjs.map(o => o.id)
+      const { data: allItems, error } = await supabase
+        .from('order_items').select('*').in('order_id', ids)
+      if (error) throw error
+      const agg = {}
+      for (const item of (allItems ?? [])) {
+        if (!agg[item.product_name]) {
+          agg[item.product_name] = {
+            name: item.product_name,
+            barcode: item.product_barcode ?? '',
+            qty: 0,
+          }
         }
+        agg[item.product_name].qty += item.quantity
       }
-      agg[item.product_name].qty += item.quantity
+      setPickingList({
+        orders: selectedOrderObjs,
+        items: Object.values(agg).sort((a, b) => b.qty - a.qty),
+      })
+    } catch (err) {
+      console.error('揀貨清單載入失敗', err)
+      toast('揀貨清單載入失敗，請稍後再試', 'error', 4000)
+    } finally {
+      setPickingLoading(false)
     }
-    setPickingList({
-      orders: selectedOrderObjs,
-      items: Object.values(agg).sort((a, b) => b.qty - a.qty),
-    })
   }
 
   // ── 列印 ─────────────────────────────────────────────────
@@ -720,23 +751,29 @@ export default function OrderDashboard() {
               <div>
                 <p className="font-bold">已勾選 {selected.size} 筆訂單</p>
                 <p className="text-xs text-stone-400 mt-0.5">
-                  {filter === 'paid' ? '批次更新為「揀貨中」' : '批次更新為「已包裝」'}
+                  {bulkLoading
+                    ? `正在更新 ${selected.size} 筆訂單，請稍候…`
+                    : `批次更新為「${STATUS_CONFIG[BULK_NEXT_STATUS[filter]]?.label ?? ''}」`}
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={clearSelection}
-                  className="text-stone-400 hover:text-white px-3 py-2 rounded-lg text-sm">
+                <button onClick={clearSelection} disabled={bulkLoading}
+                  className="text-stone-400 hover:text-white px-3 py-2 rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed">
                   取消
                 </button>
                 {filter === 'picking' && (
-                  <button onClick={openPickingList}
-                    className="flex items-center gap-1.5 bg-stone-700 hover:bg-stone-600 text-white font-bold px-4 py-2 rounded-xl text-sm transition-colors">
-                    <Printer size={14} /> 揀貨清單
+                  <button onClick={openPickingList} disabled={bulkLoading || pickingLoading}
+                    className="flex items-center gap-1.5 bg-stone-700 hover:bg-stone-600 text-white font-bold px-4 py-2 rounded-xl text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                    {pickingLoading
+                      ? <><Loader2 size={14} className="animate-spin" /> 準備中…</>
+                      : <><Printer size={14} /> 揀貨清單</>}
                   </button>
                 )}
-                <button onClick={handleBulkUpdate}
-                  className="bg-red-500 hover:bg-red-600 text-white font-bold px-4 py-2 rounded-xl text-sm transition-colors">
-                  {bulkNextLabel} →
+                <button onClick={handleBulkUpdate} disabled={bulkLoading}
+                  className="flex items-center gap-1.5 bg-red-500 hover:bg-red-600 text-white font-bold px-4 py-2 rounded-xl text-sm transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
+                  {bulkLoading
+                    ? <><Loader2 size={14} className="animate-spin" /> 處理中…</>
+                    : <>{bulkNextLabel} →</>}
                 </button>
               </div>
             </div>
