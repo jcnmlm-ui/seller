@@ -137,7 +137,8 @@ export default function ProductList() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showPrivacy, setShowPrivacy] = useState(false)
-  const { items, dispatch, count, total } = useCart()
+  // total = 實收金額（含郵票）；invoiceTotal = 發票金額（扣除郵票），滿額活動以發票金額計算
+  const { items, dispatch, count, total, invoiceTotal } = useCart()
 
   // ── 試手氣！一鍵滿額 ──────────────────────────────────
   const [luckyTarget, setLuckyTarget]   = useState(null)  // 最高的啟用中滿額門檻
@@ -176,10 +177,11 @@ export default function ProductList() {
     setShowPrivacy(false)
   }
 
-  // 隨機挑商品加入購物車，湊到最高滿額門檻（在目前購物車金額基礎上繼續加）
+  // 隨機挑商品加入購物車，湊到最高滿額門檻（在目前購物車「發票金額」基礎上繼續加）
+  // 滿額活動以發票金額計算：商品含郵票時，只有 price − stamp_amount 的部分計入滿額
   function handleLuckyDraw() {
     if (!luckyTarget || luckyDrawing) return
-    const remaining = luckyTarget - total
+    const remaining = luckyTarget - invoiceTotal
     if (remaining <= 0) {
       toast('已經達成最高門檻囉，小精靈不用出動啦！🎉', 'info')
       return
@@ -187,15 +189,17 @@ export default function ProductList() {
 
     setLuckyDrawing(true)
 
-    // 建立候選商品池：排除已無庫存可加的商品（庫存需扣掉購物車已有的數量）
+    // 建立候選商品池：
+    //  - 排除已無庫存可加的商品（庫存需扣掉購物車已有的數量）
+    //  - 排除對滿額沒有貢獻的商品（發票金額 = 價格 − 郵票金額 ≤ 0）
     let pool = products
-      .filter(p => p.price > 0)
       .map(p => {
+        const invoiceValue = (Number(p.price) || 0) - (Number(p.stamp_amount) || 0)
         const inCartQty = items.find(i => i.id === p.id)?.quantity || 0
         const remainingStock = p.stock === -1 ? Infinity : Math.max(0, p.stock - inCartQty)
-        return { product: p, remainingStock }
+        return { product: p, invoiceValue, remainingStock }
       })
-      .filter(entry => entry.remainingStock > 0)
+      .filter(entry => entry.invoiceValue > 0 && entry.remainingStock > 0)
 
     if (pool.length === 0) {
       toast('小精靈找不到可以加的商品（可能都缺貨了）', 'error')
@@ -206,17 +210,17 @@ export default function ProductList() {
     // 稍微延遲一下再出結果，增加「抽獎」的感覺
     setTimeout(() => {
       const additions = new Map() // productId → { product, qty }
-      let addedTotal = 0
+      let addedInvoice = 0        // 本次新增的發票金額（郵票不計入）
       let safety = 0
 
-      while (addedTotal < remaining && pool.length > 0 && safety < 1000) {
+      while (addedInvoice < remaining && pool.length > 0 && safety < 1000) {
         safety++
         const idx = Math.floor(Math.random() * pool.length)
         const entry = pool[idx]
 
         const prev = additions.get(entry.product.id)
         additions.set(entry.product.id, { product: entry.product, qty: (prev?.qty ?? 0) + 1 })
-        addedTotal += entry.product.price
+        addedInvoice += entry.invoiceValue
 
         entry.remainingStock -= 1
         if (entry.remainingStock <= 0) pool.splice(idx, 1)
@@ -226,12 +230,14 @@ export default function ProductList() {
         dispatch({ type: 'ADD_QTY', product, qty })
       })
 
-      const newTotal = total + addedTotal
+      const newInvoiceTotal = invoiceTotal + addedInvoice
       const itemKinds = additions.size
-      if (newTotal >= luckyTarget) {
-        toast(`✨ 小精靈煩惱後，精選加入了「${itemKinds}種商品」，達成 NT$${luckyTarget.toLocaleString()} 門檻！`, 'success')
+      const hasStamp = [...additions.values()].some(({ product }) => Number(product.stamp_amount) > 0)
+      const stampNote = hasStamp ? '（郵票金額不計入滿額）' : ''
+      if (newInvoiceTotal >= luckyTarget) {
+        toast(`✨ 小精靈煩惱後，精選加入了「${itemKinds}種商品」，發票金額達成 NT$${luckyTarget.toLocaleString()} 門檻！${stampNote}`, 'success')
       } else {
-        toast(`✨ 小精靈盡力了，只湊到 NT$${newTotal.toLocaleString()}，庫存不夠湊滿 NT$${luckyTarget.toLocaleString()}`, 'info')
+        toast(`✨ 小精靈盡力了，發票金額只湊到 NT$${newInvoiceTotal.toLocaleString()}，庫存不夠湊滿 NT$${luckyTarget.toLocaleString()}${stampNote}`, 'info')
       }
       setLuckyDrawing(false)
     }, 450)
@@ -292,7 +298,7 @@ export default function ProductList() {
             </div>
 
             {/* 選擇困難嗎？一鍵滿額（滿額後自動消失，搜尋欄會回復全寬） */}
-            {luckyTarget && total < luckyTarget && (
+            {luckyTarget && invoiceTotal < luckyTarget && (
               <button
                 onClick={handleLuckyDraw}
                 disabled={luckyDrawing}
