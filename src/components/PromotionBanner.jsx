@@ -7,6 +7,7 @@ import { useCart } from '../context/CartContext'
 const PROMO_TERMS = [
   '滿額活動為世界郵展現場活動，贈品數量有限，原活動贈品送完將改以其他贈品替代。',
   '「免費寄到家活動」僅限收件人為台灣地址或選擇 i 郵箱收件。',
+  '滿額金額以發票金額計算，郵票金額不計入。',
 ]
 const PROMO_TERMS_NOTE = '高雄郵局保有最終修改、變更、活動解釋及取消本活動之權利。'
 
@@ -42,8 +43,9 @@ function PromoTermsModal({ onClose }) {
 // 顧客前台共用的「滿額活動」提醒橫幅
 // - 沒有設定任何啟用中的門檻時不顯示任何東西
 // - 購物車金額改變時（例如加入購物車）會觸發一次脈動提示
+// - 滿額以「發票金額」計算（實收金額扣除郵票金額），郵票金額不計入
 export default function PromotionBanner() {
-  const { total } = useCart()
+  const { invoiceTotal: total, stampTotal } = useCart()
   const [tiers, setTiers]     = useState([])
   const [loading, setLoading] = useState(true)
   const [pulse, setPulse]     = useState(false)
@@ -153,6 +155,13 @@ export default function PromotionBanner() {
             }
           </p>
         </>
+      )}
+
+      {/* 購物車含郵票時提醒：郵票金額不計入滿額 */}
+      {stampTotal > 0 && (
+        <p className="text-xs text-blue-500 mt-1.5">
+          📮 郵票 NT${stampTotal.toLocaleString()} 不計入滿額，目前發票金額 NT${total.toLocaleString()}
+        </p>
       )}
     </div>
     {showTerms && <PromoTermsModal onClose={() => setShowTerms(false)} />}
