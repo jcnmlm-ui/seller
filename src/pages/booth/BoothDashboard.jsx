@@ -7,6 +7,14 @@ import { PAYMENT_LABELS, STORE } from '../../config/store'
 import { useEnabledPaymentMethods } from '../../hooks/useEnabledPaymentMethods'
 import { toast } from '../../components/StatusBadge'
 
+// 贈品文字 → 清單。「鑰匙圈+日期章」→ 2 項；「貼紙x2」→ 1 項 2 個
+function parseGifts(reward) {
+  return String(reward || '').split(/[+＋]/).map(x => x.trim()).filter(Boolean).map(x => {
+    const m = x.match(/^(.*?)\s*[x×*]\s*(\d+)$/i)
+    return m && m[1] ? { name: m[1].trim(), qty: Number(m[2]) } : { name: x, qty: 1 }
+  })
+}
+
 export default function BoothDashboard() {
   const navigate = useNavigate()
   const enabledPayMethods = useEnabledPaymentMethods()
@@ -31,6 +39,13 @@ export default function BoothDashboard() {
   const [refundHistory, setRefundHistory] = useState([])
   const [tiers, setTiers]                 = useState([])   // 滿額活動門檻（退款後提醒用）
   const [todayRefund, setTodayRefund]     = useState(0)
+  // ── 合併其他通路訂單（計入滿額）──
+  const [mergeEnabled, setMergeEnabled]   = useState(false)
+  const [mergedOrders, setMergedOrders]   = useState([])   // [{ order_no, amount, dupOf? }]
+  const [showMergePanel, setShowMergePanel] = useState(false)
+  const [mergeNo, setMergeNo]             = useState('')
+  const [mergeAmt, setMergeAmt]           = useState('')
+  const [mergeWarn, setMergeWarn]         = useState('')
   const inputRef = useRef(null)
   const { signOut } = useAuth()
 
@@ -52,7 +67,8 @@ export default function BoothDashboard() {
   }, [navigate])
 
   async function loadTodayStats() {
-    const today = new Date().toISOString().slice(0, 10)
+    // 以台灣時間 00:00 當每天起點（toISOString 是 UTC，早上 8 點前會算到前一天）
+    const today = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' }) + 'T00:00:00+08:00').toISOString()
     // 待結帳、整筆退款的訂單不算營業額；部分退款的訂單 total_amount 已是退款後金額
     const { data } = await supabase
       .from('orders').select('total_amount').not('status', 'in', '(pending,refunded)').gte('created_at', today)
@@ -69,6 +85,9 @@ export default function BoothDashboard() {
   async function loadOrderRecord(ord) {
     setOrder(ord); setPayMethod('cash'); setEditingPayment(false); setPhoneResults([]); setPhoneResultItems({})
     resetRefundState()
+    const savedMerged = Array.isArray(ord.merged_orders) ? ord.merged_orders : []
+    setMergedOrders(savedMerged); setMergeEnabled(savedMerged.length > 0)
+    setShowMergePanel(false); setMergeNo(''); setMergeAmt(''); setMergeWarn('')
     const { data: its } = await supabase.from('order_items').select('*').eq('order_id', ord.id)
     setItems(its ?? [])
     const { data: rf } = await supabase.from('order_refunds').select('*')
@@ -153,6 +172,7 @@ export default function BoothDashboard() {
   function handleClear() {
     setQuery(''); setOrder(null); setItems([]); setEditingPayment(false); setPhoneResults([]); setPhoneResultItems({})
     resetRefundState()
+    setMergeEnabled(false); setMergedOrders([]); setShowMergePanel(false)
     inputRef.current?.focus()
   }
 
@@ -160,9 +180,17 @@ export default function BoothDashboard() {
   async function confirmPayment() {
     if (!order || order.status !== 'pending') return
     setConfirming(true)
-    const { error } = await supabase.from('orders').update({
-      status: 'paid', payment_method: payMethod, paid_at: new Date().toISOString(),
+    const basePatch = { status: 'paid', payment_method: payMethod, paid_at: new Date().toISOString() }
+    let { error } = await supabase.from('orders').update({
+      ...basePatch,
+      merged_orders: mergedOrders.map(m => ({ order_no: m.order_no, amount: m.amount })),
+      promo_gift: giftTier ? giftTier.reward : null,
     }).eq('id', order.id)
+    // 保險：還沒執行 15 號 SQL（資料庫沒有新欄位）時，收款仍照常完成，只是不記錄合併資訊
+    if (error && /merged_orders|promo_gift/.test(error.message)) {
+      if (mergedOrders.length > 0) toast('資料庫尚未執行 15 號 SQL，合併訂單資訊未被記錄', 'error', 5000)
+      ;({ error } = await supabase.from('orders').update(basePatch).eq('id', order.id))
+    }
 
     if (error) {
       toast('更新失敗：' + error.message, 'error')
@@ -193,7 +221,7 @@ export default function BoothDashboard() {
       // ────────────────────────────────────────────────────
 
       setTimeout(() => {
-        setQuery(''); setOrder(null); setItems([]); inputRef.current?.focus()
+        setQuery(''); setOrder(null); setItems([]); setMergeEnabled(false); setMergedOrders([]); inputRef.current?.focus()
       }, 1800)
     }
     setConfirming(false)
@@ -213,6 +241,37 @@ export default function BoothDashboard() {
       setOrder(prev => ({ ...prev, payment_method: editPayMethod, payment_log: newLog }))
       setEditingPayment(false)
     }
+  }
+
+  // ── 合併其他通路訂單 ─────────────────────────────────────
+  function toggleMerge(checked) {
+    setMergeEnabled(checked)
+    if (checked) { setShowMergePanel(true) }
+    else { setMergedOrders([]); setMergeWarn('') }
+  }
+  async function addMergedOrder() {
+    const no = mergeNo.trim().toUpperCase()
+    const amount = Number(mergeAmt)
+    if (!no) { setMergeWarn('請輸入其他通路的訂單編號'); return }
+    if (!amount || amount <= 0) { setMergeWarn('請輸入該筆訂單的金額（發票金額）'); return }
+    if (mergedOrders.some(m => m.order_no === no)) { setMergeWarn('這個單號已經加入了'); return }
+    // 檢查這張單是否已被別筆訂單合併過（避免同一張單重複領贈品）
+    let dupOf = null
+    try {
+      const { data } = await supabase.from('orders').select('order_no')
+        .contains('merged_orders', [{ order_no: no }]).neq('id', order.id).limit(1)
+      if (data?.length) dupOf = data[0].order_no
+    } catch {}
+    setMergedOrders(prev => [...prev, { order_no: no, amount, dupOf }])
+    setMergeNo(''); setMergeAmt('')
+    setMergeWarn(dupOf ? `⚠️ 此單號已在 ${dupOf} 合併計算過，請確認是否重複領取` : '')
+  }
+  function removeMergedOrder(no) {
+    setMergedOrders(prev => prev.filter(m => m.order_no !== no))
+  }
+  function closeMergePanel() {
+    setShowMergePanel(false); setMergeWarn('')
+    if (mergedOrders.length === 0) setMergeEnabled(false)   // 沒輸入任何單就關掉 → 取消勾選
   }
 
   // ── 退貨 / 退款 ───────────────────────────────────────────
@@ -250,6 +309,13 @@ export default function BoothDashboard() {
   const itemStamp = i => Number(i.stamp_amount) || 0
   const stampTotalAll = items.reduce((s, i) => s + itemStamp(i) * i.quantity, 0)
   const curInvoice = (Number(order?.total_amount) || 0) - stampTotalAll
+  // ── 滿額贈品試算（本單發票金額 + 其他通路合併金額）──
+  const mergedSum   = mergedOrders.reduce((s, m) => s + Number(m.amount || 0), 0)
+  const giftBase    = curInvoice + mergedSum
+  const giftTier    = tiers.length ? tiers.reduce((hit, t) => (giftBase >= Number(t.threshold) ? t : hit), null) : null
+  const giftNext    = tiers.find(t => giftBase < Number(t.threshold)) ?? null
+  const giftList    = giftTier ? parseGifts(giftTier.reward) : []
+  const giftPieces  = giftList.reduce((s, g) => s + g.qty, 0)
   const refundLines = items
     .map(i => ({ item: i, qty: Math.min(refundQty[i.id] || 0, i.quantity) }))
     .filter(l => l.qty > 0)
@@ -268,8 +334,8 @@ export default function BoothDashboard() {
 
   // 退款後發票金額若掉到較低的滿額門檻，提醒追回贈品
   const tierOf = amt => tiers.reduce((hit, t) => (amt >= Number(t.threshold) ? t : hit), null)
-  const tierBefore = tierOf(curInvoice)
-  const tierAfter  = tierOf(newInvoice)
+  const tierBefore = tierOf(curInvoice + mergedSum)
+  const tierAfter  = tierOf(newInvoice + mergedSum)
   const tierDrop   = refundTotal > 0 && tierBefore && tierBefore.id !== tierAfter?.id
 
   // 現金：直接退現金；刷卡/電子支付：整筆刷退後重刷，郵票金額退現金
@@ -291,6 +357,68 @@ export default function BoothDashboard() {
     ? '💡 確認付款方式後按 ↵ Enter 或條碼槍確認收款'
     : order ? '💡 輸入下一筆訂單號或掃描 QR Code'
     : '💡 掃描顧客手機上的 QR Code；若客人忘記訂單號，也可輸入收件人手機號碼模糊搜尋（備用方式）'
+
+  const isPending = order?.status === 'pending'
+
+  // 滿額贈品提示卡（待收款時即時試算；已收款則顯示當時的合併紀錄）
+  const giftCard = order && order.status !== 'refunded' && tiers.length > 0 ? (
+    <div className="rounded-2xl border border-red-200 bg-gradient-to-r from-red-50 to-orange-50 px-5 py-4">
+      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+        <p className="text-sm font-black text-red-700">🎁 滿額贈品</p>
+        <p className="text-xs text-stone-500">
+          發票 NT${curInvoice.toLocaleString()}
+          {mergedSum > 0 && <> ＋ 其他通路 NT${mergedSum.toLocaleString()}</>}
+          {' '}＝ <b className="text-stone-800">NT${giftBase.toLocaleString()}</b>
+        </p>
+      </div>
+
+      {giftTier ? (
+        giftTier.is_sold_out ? (
+          <p className="text-sm font-bold text-orange-600 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2">
+            ⚠ 已達 NT${Number(giftTier.threshold).toLocaleString()} 門檻，但贈品「{giftTier.reward}」已送完，請改送替代贈品
+          </p>
+        ) : (
+          <>
+            <p className="text-lg font-black text-stone-900">
+              應送 {giftList.length} 項{giftPieces !== giftList.length ? `／共 ${giftPieces} 個` : ''}
+              <span className="text-xs font-semibold text-stone-400 ml-2">（滿 NT${Number(giftTier.threshold).toLocaleString()}）</span>
+            </p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {giftList.map((g, i) => (
+                <span key={i} className="px-3 py-1.5 rounded-full bg-white border border-red-200 text-red-700 text-sm font-bold">
+                  {g.name}{g.qty > 1 ? ` ×${g.qty}` : ''}
+                </span>
+              ))}
+            </div>
+          </>
+        )
+      ) : (
+        <p className="text-sm font-semibold text-stone-500">
+          未達最低門檻（NT${Number(tiers[0].threshold).toLocaleString()}），本單無滿額贈品
+        </p>
+      )}
+
+      {giftNext && (
+        <p className="text-xs text-stone-500 mt-2">
+          再 <b className="text-red-500">NT${(Number(giftNext.threshold) - giftBase).toLocaleString()}</b> 可升級為「{giftNext.reward}」
+          {giftNext.is_sold_out ? '（已送完）' : ''}
+        </p>
+      )}
+
+      {/* 已收款：顯示當時合併的其他通路訂單與記錄的贈品 */}
+      {!isPending && mergedOrders.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-red-100 text-xs text-stone-500 space-y-0.5">
+          <p className="font-semibold text-stone-400">已合併其他通路訂單</p>
+          {mergedOrders.map(m => (
+            <p key={m.order_no}><span className="font-mono">{m.order_no}</span>　NT${Number(m.amount).toLocaleString()}</p>
+          ))}
+        </div>
+      )}
+      {!isPending && order.promo_gift && (
+        <p className="text-xs text-stone-400 mt-1">收款時記錄贈品：{order.promo_gift}</p>
+      )}
+    </div>
+  ) : null
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-stone-100">
@@ -528,6 +656,31 @@ export default function BoothDashboard() {
                       </div>
                     </div>
 
+                    {giftCard}
+
+                    {/* 合併其他通路訂單：打勾後彈出輸入面板 */}
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" className="w-4 h-4 accent-red-500"
+                          checked={mergeEnabled} onChange={e => toggleMerge(e.target.checked)} />
+                        <span className="text-sm font-semibold text-stone-700">合併其他通路購買訂單（一併計算滿額）</span>
+                      </label>
+                      {mergedOrders.length > 0 && (
+                        <div className="mt-2 bg-white border border-stone-200 rounded-xl px-4 py-3 space-y-1">
+                          {mergedOrders.map(m => (
+                            <div key={m.order_no} className="flex items-center justify-between text-sm gap-2">
+                              <span className="font-mono text-stone-600 truncate">
+                                {m.order_no}{m.dupOf && <span className="text-amber-600 font-sans text-xs ml-2">⚠ 已用於 {m.dupOf}</span>}
+                              </span>
+                              <span className="font-bold text-stone-800 flex-shrink-0">NT${Number(m.amount).toLocaleString()}</span>
+                            </div>
+                          ))}
+                          <button type="button" onClick={() => setShowMergePanel(true)}
+                            className="text-xs text-red-500 hover:text-red-700 font-semibold pt-1">＋ 新增／編輯</button>
+                        </div>
+                      )}
+                    </div>
+
                     {/* 選了非現金付款、但訂單含郵票商品時，明顯提醒收款人員 */}
                     {(() => {
                       const stampTotal = items.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.quantity, 0)
@@ -642,6 +795,8 @@ export default function BoothDashboard() {
                         </button>
                       </div>
                     )}
+                    {!refundMode && giftCard}
+
                     {refundMode && canRefund && (
                       <div className="border-2 border-red-300 bg-red-50 rounded-2xl p-4 space-y-3">
                         <div className="flex items-center justify-between">
@@ -690,7 +845,7 @@ export default function BoothDashboard() {
 
                             {tierDrop && (
                               <p className="text-xs font-semibold text-amber-800 bg-amber-100 border border-amber-300 rounded-xl px-3 py-2">
-                                🎁 退款後發票金額 NT${newInvoice.toLocaleString()}，
+                                🎁 退款後{mergedSum > 0 ? '（含其他通路）' : ''}滿額金額 NT${(newInvoice + mergedSum).toLocaleString()}，
                                 {tierAfter ? `滿額活動由「${tierBefore.reward}」降為「${tierAfter.reward}」` : `已低於「${tierBefore.reward}」的門檻`}
                                 ，請依活動規則處理已給的贈品。
                               </p>
@@ -753,6 +908,65 @@ export default function BoothDashboard() {
           )}
         </div>
       </div>
+
+      {/* ── 合併其他通路訂單面板 ─────────────────────────────── */}
+      {showMergePanel && order && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl flex flex-col" style={{ maxHeight: '90vh' }}>
+            <div className="px-5 py-4 border-b border-stone-100 flex items-center justify-between flex-shrink-0">
+              <h2 className="font-black text-lg text-stone-900">合併其他通路訂單</h2>
+              <button onClick={closeMergePanel} className="text-stone-400 hover:text-stone-600"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              <p className="text-xs text-stone-400">輸入客人在其他通路（例如網路商店）購買的訂單編號與發票金額，會與本單合併計算滿額（郵票金額不計入）。</p>
+
+              <div className="flex gap-2">
+                <input className="input flex-1 font-mono text-sm" placeholder="其他通路訂單編號" autoFocus
+                  value={mergeNo} onChange={e => setMergeNo(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('merge-amt')?.focus() } }} />
+                <input id="merge-amt" className="input w-28 text-sm" type="number" min="1" placeholder="金額"
+                  value={mergeAmt} onChange={e => setMergeAmt(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addMergedOrder() } }} />
+                <button type="button" onClick={addMergedOrder} className="btn-primary px-4 text-sm">加入</button>
+              </div>
+              {mergeWarn && (
+                <p className="text-xs font-semibold text-amber-800 bg-amber-100 border border-amber-300 rounded-xl px-3 py-2">{mergeWarn}</p>
+              )}
+
+              {mergedOrders.length > 0 && (
+                <div className="space-y-1.5">
+                  {mergedOrders.map(m => (
+                    <div key={m.order_no} className="flex items-center justify-between bg-stone-50 rounded-xl px-3 py-2 text-sm gap-2">
+                      <span className="font-mono text-stone-700 truncate">{m.order_no}</span>
+                      <span className="flex items-center gap-3 flex-shrink-0">
+                        <b>NT${Number(m.amount).toLocaleString()}</b>
+                        <button type="button" onClick={() => removeMergedOrder(m.order_no)} className="text-stone-400 hover:text-red-500"><X size={14} /></button>
+                      </span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between text-sm pt-1 border-t border-stone-100">
+                    <span className="text-stone-500">其他通路合計</span>
+                    <b>NT${mergedSum.toLocaleString()}</b>
+                  </div>
+                </div>
+              )}
+
+              {/* 即時顯示合併後的贈品結果 */}
+              <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm">
+                <p className="text-xs text-stone-500">合併後滿額金額 <b className="text-stone-800">NT${giftBase.toLocaleString()}</b></p>
+                <p className="font-black text-red-700 mt-0.5">
+                  {giftTier
+                    ? (giftTier.is_sold_out ? `「${giftTier.reward}」已送完` : `應送 ${giftList.length} 項：${giftTier.reward}`)
+                    : '尚未達到任何滿額門檻'}
+                </p>
+              </div>
+            </div>
+            <div className="px-5 pb-5 pt-3 border-t border-stone-100 flex-shrink-0">
+              <button onClick={closeMergePanel} className="btn-primary w-full py-3 text-sm font-bold">完成</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── 退款確認視窗 ───────────────────────────────────── */}
       {showRefundConfirm && order && (
