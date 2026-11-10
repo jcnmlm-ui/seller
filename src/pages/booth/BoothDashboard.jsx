@@ -32,6 +32,10 @@ export default function BoothDashboard() {
   const [refundHistory, setRefundHistory] = useState([])
   const [tiers, setTiers]                 = useState([])   // 滿額活動門檻（退款後提醒用）
   const [todayRefund, setTodayRefund]     = useState(0)
+  // ── 收款前調整（減少）數量 ──
+  const [editMode, setEditMode]           = useState(false)
+  const [editQty, setEditQty]             = useState({})   // { [order_item_id]: 調整後數量 }
+  const [savingEdit, setSavingEdit]       = useState(false)
   // ── 合併其他通路訂單（計入滿額）──
   const [mergeEnabled, setMergeEnabled]   = useState(false)
   const [mergedOrders, setMergedOrders]   = useState([])   // [{ order_no, amount, dupOf? }]
@@ -97,6 +101,7 @@ export default function BoothDashboard() {
   function resetRefundState() {
     setRefundMode(false); setRefundQty({}); setRefundRef(''); setRefundReason('')
     setShowRefundConfirm(false); setRefundHistory([])
+    setEditMode(false); setEditQty({})
   }
 
   // 從手機模糊搜尋的預覽清單中，點選其中一筆帶入
@@ -178,6 +183,7 @@ export default function BoothDashboard() {
   // ── 確認收款 ─────────────────────────────────────────────
   async function confirmPayment() {
     if (!order || order.status !== 'pending') return
+    if (editMode) { toast('請先「儲存調整」或「取消」數量調整，再確認收款', 'error'); return }
     setConfirming(true)
     const basePatch = { status: 'paid', payment_method: payMethod, paid_at: new Date().toISOString() }
     let { error } = await supabase.from('orders').update({
@@ -273,6 +279,31 @@ export default function BoothDashboard() {
     if (mergedOrders.length === 0) setMergeEnabled(false)   // 沒輸入任何單就關掉 → 取消勾選
   }
 
+  // ── 收款前調整數量（只能減少，0 = 移除該品項）──────────────
+  function startEdit() {
+    const q = {}; items.forEach(i => { q[i.id] = i.quantity })
+    setEditQty(q); setEditMode(true)
+  }
+  function cancelEdit() { setEditMode(false); setEditQty({}) }
+  function setItemEditQty(item, qty) {
+    const q = Math.max(0, Math.min(item.quantity, qty))
+    setEditQty(prev => ({ ...prev, [item.id]: q }))
+  }
+  async function saveEdit() {
+    if (!editChanged) { cancelEdit(); return }
+    if (editRemaining <= 0) { toast('至少要保留一項商品', 'error'); return }
+    setSavingEdit(true)
+    const { error } = await supabase.rpc('reduce_pending_order', {
+      p_order_id: order.id,
+      p_items: items.filter(i => effQty(i) !== i.quantity).map(i => ({ order_item_id: i.id, qty: effQty(i) })),
+    })
+    setSavingEdit(false)
+    if (error) { toast('調整失敗：' + error.message, 'error'); return }
+    toast('✓ 已調整數量，庫存已回補', 'success')
+    const { data: ord } = await supabase.from('orders').select('*').eq('id', order.id).single()
+    if (ord) await loadOrderRecord(ord)
+  }
+
   // ── 退貨 / 退款 ───────────────────────────────────────────
   function setItemRefundQty(item, qty) {
     const q = Math.max(0, Math.min(item.quantity, qty))
@@ -306,8 +337,12 @@ export default function BoothDashboard() {
 
   // ── 退款試算（每次 render 重新計算）──
   const itemStamp = i => Number(i.stamp_amount) || 0
-  const stampTotalAll = items.reduce((s, i) => s + itemStamp(i) * i.quantity, 0)
-  const curInvoice = (Number(order?.total_amount) || 0) - stampTotalAll
+  const effQty = i => (editMode ? (editQty[i.id] ?? i.quantity) : i.quantity)   // 調整模式下用「調整後」數量試算
+  const stampTotalAll = items.reduce((s, i) => s + itemStamp(i) * effQty(i), 0)
+  const effTotal = editMode ? items.reduce((s, i) => s + Number(i.unit_price) * effQty(i), 0) : (Number(order?.total_amount) || 0)
+  const curInvoice = effTotal - stampTotalAll
+  const editChanged   = editMode && items.some(i => effQty(i) !== i.quantity)
+  const editRemaining = items.reduce((s, i) => s + effQty(i), 0)
   // ── 滿額贈品試算（本單發票金額 + 其他通路合併金額）──
   const mergedSum   = mergedOrders.reduce((s, m) => s + Number(m.amount || 0), 0)
   const giftBase    = curInvoice + mergedSum
@@ -539,6 +574,15 @@ export default function BoothDashboard() {
                     {order.status === 'pending' ? '待收款' : order.status === 'refunded' ? '已退款' : '已結帳'}
                     <span className="font-mono text-xs opacity-70 ml-1">{order.order_no}</span>
                   </div>
+                  {order.status === 'pending' && !editMode && items.length > 0 && (
+                    <button type="button" onClick={startEdit}
+                      className="flex items-center gap-1 text-xs font-bold text-stone-600 border border-stone-300 bg-white hover:bg-stone-100 px-3 py-1.5 rounded-full transition-colors">
+                      <Edit2 size={12} /> 調整數量
+                    </button>
+                  )}
+                  {editMode && (
+                    <span className="text-xs font-bold text-amber-700 bg-amber-100 px-3 py-1.5 rounded-full">調整中（只能減少）</span>
+                  )}
                   {refundMode && (
                     <button type="button" onClick={selectAllForRefund}
                       className="text-xs font-bold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-full transition-colors">
@@ -553,7 +597,10 @@ export default function BoothDashboard() {
                   {items.map(item => (
                     <div key={item.id}
                       className={`flex items-center justify-between py-2.5 px-3 rounded-xl transition-colors
-                        ${refundMode && (refundQty[item.id] || 0) > 0 ? 'bg-red-50 ring-1 ring-red-200' : 'bg-stone-50'}`}>
+                        ${refundMode && (refundQty[item.id] || 0) > 0 ? 'bg-red-50 ring-1 ring-red-200'
+                          : editMode && effQty(item) !== item.quantity ? 'bg-amber-50 ring-1 ring-amber-200'
+                          : 'bg-stone-50'}
+                        ${editMode && effQty(item) === 0 ? 'opacity-50' : ''}`}>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-stone-900 text-sm truncate">{item.product_name}</p>
                         {item.product_barcode && (
@@ -572,14 +619,38 @@ export default function BoothDashboard() {
                               className="p-1 text-red-500 hover:bg-red-50 rounded"><Plus size={14} /></button>
                           </div>
                         )}
-                        <span className="text-stone-400">×{item.quantity}</span>
-                        <span className="font-bold text-stone-900 w-20 text-right">
-                          NT${(item.unit_price * item.quantity).toLocaleString()}
+                        {editMode && (
+                          <div className="flex items-center gap-1 bg-white border border-amber-300 rounded-lg px-1 py-0.5">
+                            <button type="button" onClick={() => setItemEditQty(item, effQty(item) - 1)}
+                              className="p-1 text-amber-600 hover:bg-amber-50 rounded"><Minus size={14} /></button>
+                            <span className="w-14 text-center font-bold text-amber-700 text-xs">
+                              {effQty(item) === 0 ? '移除' : `改 ${effQty(item)}`}
+                            </span>
+                            <button type="button" onClick={() => setItemEditQty(item, effQty(item) + 1)}
+                              disabled={effQty(item) >= item.quantity}
+                              className="p-1 text-amber-600 hover:bg-amber-50 rounded disabled:opacity-30"><Plus size={14} /></button>
+                          </div>
+                        )}
+                        <span className={`text-stone-400 ${editMode && effQty(item) !== item.quantity ? 'line-through' : ''}`}>×{item.quantity}</span>
+                        <span className={`font-bold text-stone-900 w-20 text-right ${editMode && effQty(item) === 0 ? 'line-through' : ''}`}>
+                          NT${(item.unit_price * (editMode ? effQty(item) : item.quantity)).toLocaleString()}
                         </span>
                       </div>
                     </div>
                   ))}
                 </div>
+                {Array.isArray(order.edit_log) && order.edit_log.length > 0 && (
+                  <div className="mt-4 pt-3 border-t border-stone-100 space-y-1">
+                    <p className="text-xs font-semibold text-stone-400 tracking-widest">收款前數量調整紀錄</p>
+                    {order.edit_log.map((e, i) => (
+                      <p key={i} className="text-xs text-stone-400">
+                        <span className="font-mono">{new Date(e.at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}</span>
+                        {'　'}{(e.changes ?? []).map(c => `${c.product_name} ${c.from}→${c.to}`).join('、')}
+                        {'　'}合計 NT${Number(e.from_total).toLocaleString()}→NT${Number(e.to_total).toLocaleString()}
+                      </p>
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -587,9 +658,19 @@ export default function BoothDashboard() {
           {/* 合計 */}
           {order && (
             <div className="flex-shrink-0 border-t border-stone-200 bg-white px-5 py-4">
+              {editMode && (
+                <div className="flex gap-2 mb-3">
+                  <button type="button" onClick={cancelEdit} disabled={savingEdit}
+                    className="flex-1 py-2.5 rounded-xl bg-stone-100 text-stone-600 font-bold hover:bg-stone-200 text-sm">取消</button>
+                  <button type="button" onClick={saveEdit} disabled={savingEdit || !editChanged || editRemaining <= 0}
+                    className="flex-[2] py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-sm disabled:opacity-40">
+                    {savingEdit ? '儲存中…' : editRemaining <= 0 ? '至少保留一項' : editChanged ? `儲存調整（原 NT$${Number(order.total_amount).toLocaleString()}）` : '尚未調整'}
+                  </button>
+                </div>
+              )}
               {(() => {
-                const stampTotal = items.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.quantity, 0)
-                const invoiceAmount = order.total_amount - stampTotal
+                const stampTotal = stampTotalAll
+                const invoiceAmount = effTotal - stampTotal
                 return (
                   <div className="flex justify-between items-start">
                     <span className="text-stone-500 font-medium pt-1">合計應收</span>
@@ -597,7 +678,7 @@ export default function BoothDashboard() {
                       <div className="flex items-center gap-2 justify-end">
                         {stampTotal > 0 && <span className="text-xs text-stone-400">實收</span>}
                         <span className="font-black text-3xl text-red-500">
-                          NT${order.total_amount.toLocaleString()}
+                          NT${effTotal.toLocaleString()}
                         </span>
                       </div>
                       {stampTotal > 0 && (
@@ -701,7 +782,7 @@ export default function BoothDashboard() {
                       )
                     })()}
 
-                    <button onClick={confirmPayment} disabled={confirming}
+                    <button onClick={confirmPayment} disabled={confirming || editMode}
                       className="btn-primary w-full py-5 text-xl font-black rounded-2xl shadow-lg mt-auto">
                       {confirming ? (
                         <span className="flex items-center justify-center gap-2">
