@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Gift, PartyPopper, Info, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useCart } from '../context/CartContext'
@@ -12,9 +13,13 @@ const PROMO_TERMS = [
 const PROMO_TERMS_NOTE = '高雄郵局保有最終修改、變更、活動解釋及取消本活動之權利。'
 
 function PromoTermsModal({ onClose }) {
-  return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-3">
-      <div className="bg-white rounded-2xl w-full max-w-lg flex flex-col shadow-2xl" style={{ maxHeight: '80vh' }}>
+  // 用 portal 掛到 <body>：避免被外層容器（有 transform／動畫）影響，讓 fixed 永遠以「目前視窗」為準，
+  // 不論購物車捲到哪裡，說明視窗都會出現在畫面正中間。
+  return createPortal(
+    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-3"
+         style={{ height: '100dvh' }} onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-lg flex flex-col shadow-2xl" style={{ maxHeight: '85dvh' }}
+           onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-stone-100 flex-shrink-0 flex items-start justify-between gap-3">
           <div className="flex items-center gap-2">
             <Info size={18} className="text-red-500 flex-shrink-0" />
@@ -36,7 +41,8 @@ function PromoTermsModal({ onClose }) {
           <button onClick={onClose} className="btn-primary w-full py-3 text-sm">我知道了</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
