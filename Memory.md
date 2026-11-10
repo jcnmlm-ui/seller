@@ -1,7 +1,7 @@
 # Memory.md — 開發狀態記錄
 
 > 記錄開發進度與現況。每次上傳新 zip 後請對照更新。
-> 最後更新：2026/06/15（對照 seller-main.zip 驗證）
+> 最後更新：2026/11/10（世界郵展現場收款調整；依本次對話交付內容更新）
 
 ---
 
@@ -35,8 +35,18 @@
 
 | 檔案 | 功能摘要 |
 |------|---------|
-| BoothDashboard.jsx | 橫式雙欄，QR 解析，Enter 雙用，付款修改記錄，Broadcast 廣播 |
-| CashierPage.jsx | 刷條碼收銀，source=booth_cashier，status=delivered |
+| BoothDashboard.jsx | 橫式雙欄，QR 解析，Enter 雙用，付款修改記錄，Broadcast 廣播；**收款前調整數量、滿額贈品提示（循環制）、合併其他通路訂單、退貨／退款**（2026/11/10）|
+| CashierPage.jsx | 刷條碼收銀，source=booth_cashier，status=delivered；今日統計改台灣時間 00:00 起算 |
+
+### src/lib/、src/components/（2026/11/10 異動）
+
+| 檔案 | 功能摘要 |
+|------|---------|
+| lib/gifts.js | 新增。滿額贈品循環制計算（computeGifts / nextGiftStep / giftText），攤位與顧客橫幅共用 |
+| components/PromotionBanner.jsx | 顧客購物車滿額贈橫幅改循環制；活動說明視窗改 portal |
+| config/store.js | STATUS_CONFIG 新增 refunded（已退款）|
+| pages/admin/ReportsDashboard.jsx | 報表排除 pending 與 refunded 訂單 |
+| pages/customer/OrderQuery.jsx | 狀態對照新增「已退款」|
 
 ### src/pages/admin/
 
@@ -78,6 +88,12 @@
 | 07 | payment_log JSONB | ✅ Supabase 執行 |
 | 08 | settings 資料表 | ✅ Supabase 執行 |
 | 09 | orders.source | ✅ Supabase 執行 |
+| 10–11 | 郵票金額 / 滿額活動（內容待對照 Supabase 紀錄補上）| ✅ Supabase 執行 |
+| 12 | orders.ibox_full_address | ✅ Supabase 執行 |
+| 13 | promotion_tiers.is_sold_out | ✅ Supabase 執行 |
+| 14 | 退貨／退款：refunded 狀態、order_refunds、refund_order() | ⚠️ 2026/11/10 提供，**請確認已在 Supabase 執行** |
+| 15 | 合併其他通路訂單：merged_orders、promo_gift | ⚠️ 同上 |
+| 16 | 收款前調整數量：edit_log、reduce_pending_order() | ⚠️ 同上 |
 
 ---
 
@@ -98,6 +114,15 @@
 - [x] 已收款修改付款方式
 - [x] 修改紀錄（payment_log）
 - [x] Broadcast 廣播通知後台
+
+### 攤位收款 — 世界郵展現場調整（2026/11/10）
+- [x] 收款前調整（減少）待收款訂單數量，回補庫存，留 edit_log
+- [x] 收款時顯示應送滿額贈品（項數／個數／名稱），贈品與金額全部跟後台滿額贈設定走
+- [x] 滿額贈品改循環制：每滿最高門檻再送一組，餘額加送（攤位頁與顧客橫幅一致）
+- [x] 合併其他通路購買訂單（單號＋金額，可多筆，重複單號警示）
+- [x] 已收款訂單退貨／退款（部分退、整筆退、庫存回補、刷卡整筆刷退重刷、郵票金額退現金、退款紀錄、滿額贈品減少提示）
+- [x] 今日統計改台灣時間 00:00 起算，並顯示「已扣退款」
+- [x] 活動說明視窗置中修正（portal）
 
 ### 現場收銀台（新）
 - [x] 刷條碼加入購物車
@@ -143,6 +168,12 @@
 - [ ] 現場收銀台收據列印
 - [ ] 現場收銀台也廣播通知後台
 - [ ] 報表 Excel 匯出
+- [ ] 顧客「一鍵滿額」小精靈目前只湊到最高一階，是否改為可繼續湊下一組（循環）
+- [ ] 活動說明視窗條款補上循環制說明（需 jcn 確認文字）
+- [ ] 「取消整筆待收款訂單」功能（目前調整數量至少保留一項；整筆不要只能不付款，庫存仍被保留）
+- [ ] 退款後通知出貨端（OrderDashboard 目前靠 postgres_changes 自動重整，無專屬提醒）
+- [ ] 已出貨／送達訂單的退款流程（目前攤位不可退，需後台處理）
+- [ ] 報表顯示退款明細（目前報表只是排除整筆退款訂單，不單獨列退款）
 
 ---
 
@@ -158,6 +189,13 @@
 | 現場收銀直接 delivered | 現場交付，跳過出貨流程 |
 | payment_log JSONB | 彈性記錄修改，不需額外資料表 |
 | source 欄位 | 區分預購與現場，報表可分別統計 |
+| 退款走 RPC（單一交易） | 品項、金額、庫存、退款紀錄必須同時成功或同時失敗 |
+| 部分退款直接更新 order_items 與 total_amount，原始內容存 order_refunds | 出貨單、揀貨清單、報表自動呈現退款後內容，不用逐頁改 |
+| 刷卡退款＝整筆刷退重刷 | 刷卡機無法部分退；系統只提示步驟，不串接刷卡機 |
+| 現場收銀台訂單退款不回補庫存 | 現場收銀當初就沒有扣庫存 |
+| 滿額贈循環以「最高門檻」為週期 | 跟後台設定連動，不寫死金額；贈品名稱用互相包含合併 |
+| 日界線用台灣時間 00:00 | toISOString 是 UTC，早上 8 點前會算錯 |
+| 活動說明視窗用 portal | 外層容器有 transform 時，fixed 會以容器而非視窗為準 |
 
 ---
 

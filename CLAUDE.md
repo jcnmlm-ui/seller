@@ -22,7 +22,7 @@
 | Repo | `jcnmlm-ui/seller` |
 | 部署網址 | `https://jcnmlm-ui.github.io/seller/` |
 | 部署方式 | GitHub Actions（push to main 自動觸發）|
-| Supabase project | `ftjwnidvajuhtincpdtx` |
+| Supabase project | `tukzmdtkhdxdpbnvkjzz`（khpostgoods，目前使用）；舊專案 `ftjwnidvajuhtincpdtx` 已遷移，刪除前請先確認無殘留相依 |
 
 ---
 
@@ -34,6 +34,8 @@
 4. SQL migrations 手動在 Supabase SQL Editor 執行
 5. **提供修改時必須給完整檔案**，讓 jcn 整個複製貼上
 6. 多個檔案同時修改時，用 Python 腳本處理後再輸出完整檔案
+7. **交付檔案請依 GitHub 資料夾階層打包成 zip**（根目錄 `seller-main/`），jcn 解壓縮後把 `src` 等資料夾直接拖進 GitHub 上傳頁面即可覆蓋；SQL 另外提供、在 Supabase SQL Editor 執行（可選擇一併放進 `supabase/` 留存）
+8. 交付前一律先 `npm run build` 驗證
 
 ---
 
@@ -101,15 +103,42 @@ total_amount, status, payment_method,
 paid_at, shipped_at, tracking_no,
 payment_log (jsonb),   -- 付款方式修改紀錄
 source (text),         -- 'online' | 'booth_cashier'
+ibox_full_address,     -- i 郵箱完整地址（migration 12）
+refunded_amount,       -- 累計退款金額（migration 14）
+merged_orders (jsonb), -- 合併的其他通路訂單 [{order_no, amount}]（migration 15）
+promo_gift (text),     -- 收款當下記錄的應送贈品，例「鑰匙圈×3、日期章×4」（migration 15）
+edit_log (jsonb),      -- 收款前數量調整紀錄（migration 16）
 created_at
 ```
+status 允許值：`pending / paid / picking / packed / shipped / delivered / refunded`
 
 ### order_items
 ```sql
 id, order_id (FK), product_id (FK),
 product_name, product_barcode,
-unit_price, quantity, created_at
+unit_price, quantity,
+stamp_amount,          -- 該品項含的郵票金額（下單時快照；unit_price 已包含郵票金額）
+created_at
 ```
+
+### order_refunds（migration 14）
+```sql
+id, order_id (FK), order_no, refund_type ('partial'|'full'),
+items (jsonb), refund_total, refund_invoice, refund_stamp,
+payment_method, refund_ref (刷退單號/備註), reason,
+operator (登入 email), stock_restored, created_at
+```
+
+### promotion_tiers
+```sql
+id, threshold, reward (贈品文字，多項用 + 分隔，數量可寫「貼紙x2」),
+is_active, is_sold_out
+```
+
+### 資料庫函數（RPC）
+- `decrement_stock(product_ids, quantities)`：下單扣庫存
+- `refund_order(order_id, items, ref, reason)`：已收款訂單退貨／退款，單一交易內完成「扣品項、改金額、回補庫存、寫紀錄」
+- `reduce_pending_order(order_id, items)`：待收款訂單減少品項數量，回補庫存並寫入 edit_log
 
 ### products
 ```sql
@@ -135,6 +164,11 @@ pending → paid → picking → packed → shipped → delivered
 （預購流程）
 
 booth_cashier 現場銷售：直接建立 status='delivered'
+
+退款：paid / picking / packed 可在攤位退款
+  部分退 → 狀態不變，品項數量與金額直接更新
+  整筆退 → status='refunded'（不出現在出貨後台、不計入營業額）
+shipped / delivered 不可在攤位退款
 ```
 
 ---
@@ -193,6 +227,12 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 - 確認付款方式預設現金，確認後可修改，修改寫入 payment_log
 - 確認收款時透過 Supabase Broadcast 通知所有後台
 
+- **收款前調整數量**：待收款訂單可按「調整數量」只減不增（0 = 移除），儲存後回補庫存並寫入 `edit_log`；至少保留一項
+- **滿額贈品提示**：依「發票金額（扣郵票）＋合併的其他通路金額」即時算出應送贈品與數量；計算邏輯在 `src/lib/gifts.js`
+- **合併其他通路訂單**：勾選後彈出面板輸入單號與金額（可多筆），同一單號已被別筆訂單合併會警示；收款時存入 `merged_orders`、`promo_gift`
+- **退貨／退款**（已收款）：左側用 ＋／－ 選退幾件或「整筆全選」，右側顯示應退金額與收銀步驟（現金退現金；刷卡/電子支付＝整筆刷退後重刷剩餘金額，郵票金額退現金）；退款後滿額贈品減少會提示追回；任何登入人員皆可操作，操作人員 email 記入 `order_refunds`
+- 右上角「今日」統計以**台灣時間 00:00** 為起點，排除待結帳與整筆退款訂單，另顯示「已扣退款」
+
 ### 現場收銀台（CashierPage）
 - 刷讀商品條碼 → 查 products 表 → 加入購物車
 - 重複刷讀 = 數量 +1，可手動調整
@@ -205,6 +245,14 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 - 連續出貨模式：勾選後 Enter 自動跳下一筆已包裝訂單
 - Broadcast 接收：攤位收款後 toast + 音效 + 系統通知
 - senderSettings 從 Supabase settings 讀取，傳入 WaybillA5 / ShippingSlipA4
+
+### 滿額贈品（循環制，`src/lib/gifts.js`，攤位收款頁與顧客購物車橫幅共用）
+- 全部讀取後台 `promotion_tiers`（啟用中），程式內沒有寫死金額或贈品名稱
+- 以**最高一階門檻**為一個循環：每滿一個循環送一整組最高階贈品；餘額再依達到的最高一階加送該階贈品
+  例（500 鑰匙圈／1,000 日期章／1,500 鑰匙圈+日期章）：1,500→各1；3,000→各2；3,500→各2再加鑰匙圈1
+- 各階贈品名稱互相包含視為同一項（「波波鴿日期章」≈「日期章」），畫面統一顯示較短名稱，**後台改名時請維持互相包含**
+- 滿額金額以發票金額計算（郵票金額不計入）
+- 活動說明視窗（PromoTermsModal）以 portal 掛到 `<body>`，避免外層 transform 讓 fixed 定位跑掉
 
 ### 銷售報表
 - 篩選：期間（快捷+自訂）× 來源（全部/預購/現場）
@@ -228,6 +276,12 @@ repo 的 `supabase/` 資料夾只有前 3 個（初始架構）。
 | 07 | payment_log JSONB 欄位 |
 | 08 | settings 資料表 |
 | 09 | orders.source 欄位 |
+| 10–11 | 郵票金額（stamp_amount）、滿額活動（promotion_tiers）相關（確切檔名/內容請對照 Supabase SQL Editor 紀錄補上） |
+| 12 | `12_add_ibox_address.sql`：orders.ibox_full_address |
+| 13 | `13_promotion_sold_out.sql`：promotion_tiers.is_sold_out |
+| 14 | `14_order_refund.sql`：refunded 狀態、orders.refunded_amount、order_refunds 表、refund_order() |
+| 15 | `15_merge_other_channel.sql`：orders.merged_orders、orders.promo_gift |
+| 16 | `16_reduce_pending_order.sql`：orders.edit_log、reduce_pending_order() |
 
 ---
 
