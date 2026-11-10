@@ -34,7 +34,8 @@ export default function CashierPage() {
   }, [navigate])
 
   async function loadTodayStats() {
-    const today = new Date().toISOString().slice(0, 10)
+    // 以台灣時間 00:00 當每天起點（toISOString 是 UTC，早上 8 點前會算到前一天）
+    const today = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' }) + 'T00:00:00+08:00').toISOString()
     const { data } = await supabase
       .from('orders')
       .select('total_amount')
