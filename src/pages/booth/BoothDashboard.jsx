@@ -15,6 +15,57 @@ function parseGifts(reward) {
   })
 }
 
+// 贈品合併：名稱互相包含視為同一項（例如「波波鴿搖搖樂鑰匙圈」與「鑰匙圈」），數量相加，名稱取較短者
+function mergeGift(list, g) {
+  const hit = list.find(x => x.name.includes(g.name) || g.name.includes(x.name))
+  if (hit) { hit.qty += g.qty; if (g.name.length < hit.name.length) hit.name = g.name }
+  else list.push({ ...g })
+}
+
+// 滿額贈品試算（循環制）：
+//   以「最高一階門檻」為一個循環，每滿一個循環就送一整組最高階贈品；
+//   不足一個循環的餘額，再依餘額能達到的最高一階，加送該階贈品。
+//   例（門檻 500 / 1,000 / 1,500）：1,500 → 各 1；3,000 → 各 2；3,500 → 各 2，再加 500 那項 1 個。
+function computeGifts(tiers, amount) {
+  const sorted = [...tiers].sort((a, b) => Number(a.threshold) - Number(b.threshold))
+  const out = { gifts: [], cycles: 0, rem: amount, topTier: null, remTier: null, soldOut: [] }
+  if (!sorted.length || amount <= 0) return out
+  const top = sorted[sorted.length - 1]
+  const cycle = Number(top.threshold)
+  const cycles = Math.floor(amount / cycle)
+  const rem = amount - cycles * cycle
+  const remTier = sorted.reduce((hit, t) => (rem >= Number(t.threshold) ? t : hit), null)
+  // 各階贈品名稱可能寫法不同（「波波鴿日期章」vs「日期章」），統一取最短的名稱顯示
+  const allNames = sorted.flatMap(t => parseGifts(t.reward).map(g => g.name))
+  const canon = n => allNames.filter(m => m.includes(n) || n.includes(m)).reduce((a, b) => (b.length < a.length ? b : a), n)
+  const norm = g => ({ name: canon(g.name), qty: g.qty })
+  if (cycles > 0) parseGifts(top.reward).map(norm).forEach(g => mergeGift(out.gifts, { name: g.name, qty: g.qty * cycles }))
+  if (remTier) parseGifts(remTier.reward).map(norm).forEach(g => mergeGift(out.gifts, g))
+  out.cycles = cycles; out.rem = rem; out.topTier = top; out.remTier = remTier
+  out.soldOut = [cycles > 0 && top.is_sold_out ? top : null, remTier?.is_sold_out ? remTier : null].filter(Boolean)
+  return out
+}
+const giftText = list => list.map(g => `${g.name}×${g.qty}`).join('、')
+
+// 下一個「會多送東西」的金額點，以及屆時多送哪些
+function nextGiftStep(tiers, amount) {
+  const sorted = [...tiers].sort((a, b) => Number(a.threshold) - Number(b.threshold))
+  if (!sorted.length) return null
+  const cycle = Number(sorted[sorted.length - 1].threshold)
+  const n = Math.floor(amount / cycle)
+  let best = Infinity
+  for (const k of [n, n + 1]) for (const t of sorted) {
+    const v = k * cycle + Number(t.threshold)
+    if (v > amount && v < best) best = v
+  }
+  if (!isFinite(best)) return null
+  const cur = computeGifts(tiers, amount).gifts
+  const adds = computeGifts(tiers, best).gifts
+    .map(g => ({ name: g.name, qty: g.qty - (cur.find(c => c.name === g.name)?.qty ?? 0) }))
+    .filter(g => g.qty > 0)
+  return { need: best - amount, adds }
+}
+
 export default function BoothDashboard() {
   const navigate = useNavigate()
   const enabledPayMethods = useEnabledPaymentMethods()
@@ -52,10 +103,15 @@ export default function BoothDashboard() {
   useEffect(() => {
     inputRef.current?.focus()
     loadTodayStats()
-    supabase.from('promotion_tiers').select('*').eq('is_active', true)
-      .order('threshold', { ascending: true })
-      .then(({ data }) => setTiers(data ?? []))
+    loadTiers()
   }, [])
+
+  // 滿額贈設定：開頁時讀一次，之後每掃一筆訂單再重讀，後台改設定不用重新整理攤位頁
+  async function loadTiers() {
+    const { data, error } = await supabase.from('promotion_tiers').select('*').eq('is_active', true)
+      .order('threshold', { ascending: true })
+    if (!error) setTiers(data ?? [])
+  }
 
   // ── 快速鍵：F3 切換到現場收銀台，方便全螢幕時免用滑鼠切換 ──
   useEffect(() => {
@@ -85,6 +141,7 @@ export default function BoothDashboard() {
   async function loadOrderRecord(ord) {
     setOrder(ord); setPayMethod('cash'); setEditingPayment(false); setPhoneResults([]); setPhoneResultItems({})
     resetRefundState()
+    loadTiers()
     const savedMerged = Array.isArray(ord.merged_orders) ? ord.merged_orders : []
     setMergedOrders(savedMerged); setMergeEnabled(savedMerged.length > 0)
     setShowMergePanel(false); setMergeNo(''); setMergeAmt(''); setMergeWarn('')
@@ -184,7 +241,7 @@ export default function BoothDashboard() {
     let { error } = await supabase.from('orders').update({
       ...basePatch,
       merged_orders: mergedOrders.map(m => ({ order_no: m.order_no, amount: m.amount })),
-      promo_gift: giftTier ? giftTier.reward : null,
+      promo_gift: giftList.length ? giftText(giftList) : null,
     }).eq('id', order.id)
     // 保險：還沒執行 15 號 SQL（資料庫沒有新欄位）時，收款仍照常完成，只是不記錄合併資訊
     if (error && /merged_orders|promo_gift/.test(error.message)) {
@@ -312,10 +369,11 @@ export default function BoothDashboard() {
   // ── 滿額贈品試算（本單發票金額 + 其他通路合併金額）──
   const mergedSum   = mergedOrders.reduce((s, m) => s + Number(m.amount || 0), 0)
   const giftBase    = curInvoice + mergedSum
-  const giftTier    = tiers.length ? tiers.reduce((hit, t) => (giftBase >= Number(t.threshold) ? t : hit), null) : null
-  const giftNext    = tiers.find(t => giftBase < Number(t.threshold)) ?? null
-  const giftList    = giftTier ? parseGifts(giftTier.reward) : []
+  const giftCalc    = computeGifts(tiers, giftBase)
+  const giftList    = giftCalc.gifts
   const giftPieces  = giftList.reduce((s, g) => s + g.qty, 0)
+  const giftStep    = nextGiftStep(tiers, giftBase)
+  const minThreshold = tiers.length ? Math.min(...tiers.map(t => Number(t.threshold))) : 0
   const refundLines = items
     .map(i => ({ item: i, qty: Math.min(refundQty[i.id] || 0, i.quantity) }))
     .filter(l => l.qty > 0)
@@ -333,10 +391,9 @@ export default function BoothDashboard() {
   const refundVerb    = order?.payment_method === 'card' ? '刷退' : '退款'
 
   // 退款後發票金額若掉到較低的滿額門檻，提醒追回贈品
-  const tierOf = amt => tiers.reduce((hit, t) => (amt >= Number(t.threshold) ? t : hit), null)
-  const tierBefore = tierOf(curInvoice + mergedSum)
-  const tierAfter  = tierOf(newInvoice + mergedSum)
-  const tierDrop   = refundTotal > 0 && tierBefore && tierBefore.id !== tierAfter?.id
+  const giftsBefore = giftList
+  const giftsAfter  = computeGifts(tiers, newInvoice + mergedSum).gifts
+  const tierDrop    = refundTotal > 0 && giftsBefore.length > 0 && giftText(giftsBefore) !== giftText(giftsAfter)
 
   // 現金：直接退現金；刷卡/電子支付：整筆刷退後重刷，郵票金額退現金
   const refundSteps = (() => {
@@ -372,36 +429,38 @@ export default function BoothDashboard() {
         </p>
       </div>
 
-      {giftTier ? (
-        giftTier.is_sold_out ? (
-          <p className="text-sm font-bold text-orange-600 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2">
-            ⚠ 已達 NT${Number(giftTier.threshold).toLocaleString()} 門檻，但贈品「{giftTier.reward}」已送完，請改送替代贈品
+      {giftList.length > 0 ? (
+        <>
+          <p className="text-lg font-black text-stone-900">
+            應送 {giftList.length} 項／共 {giftPieces} 個
           </p>
-        ) : (
-          <>
-            <p className="text-lg font-black text-stone-900">
-              應送 {giftList.length} 項{giftPieces !== giftList.length ? `／共 ${giftPieces} 個` : ''}
-              <span className="text-xs font-semibold text-stone-400 ml-2">（滿 NT${Number(giftTier.threshold).toLocaleString()}）</span>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {giftList.map((g, i) => (
+              <span key={i} className="px-4 py-2 rounded-full bg-white border border-red-200 text-red-700 text-base font-black">
+                {g.name} <span className="text-red-500">×{g.qty}</span>
+              </span>
+            ))}
+          </div>
+          <p className="text-xs text-stone-400 mt-2">
+            {giftCalc.cycles > 0 && <>滿 NT${Number(giftCalc.topTier.threshold).toLocaleString()} ×{giftCalc.cycles} 組</>}
+            {giftCalc.cycles > 0 && giftCalc.remTier && '，'}
+            {giftCalc.remTier && <>餘 NT${giftCalc.rem.toLocaleString()}（滿 NT${Number(giftCalc.remTier.threshold).toLocaleString()} 加送「{giftCalc.remTier.reward}」）</>}
+          </p>
+          {giftCalc.soldOut.length > 0 && (
+            <p className="mt-2 text-sm font-bold text-orange-600 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2">
+              ⚠ 「{giftCalc.soldOut.map(t => t.reward).join('、')}」已送完，請改送替代贈品
             </p>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {giftList.map((g, i) => (
-                <span key={i} className="px-3 py-1.5 rounded-full bg-white border border-red-200 text-red-700 text-sm font-bold">
-                  {g.name}{g.qty > 1 ? ` ×${g.qty}` : ''}
-                </span>
-              ))}
-            </div>
-          </>
-        )
+          )}
+        </>
       ) : (
         <p className="text-sm font-semibold text-stone-500">
-          未達最低門檻（NT${Number(tiers[0].threshold).toLocaleString()}），本單無滿額贈品
+          未達最低門檻（NT${minThreshold.toLocaleString()}），本單無滿額贈品
         </p>
       )}
 
-      {giftNext && (
+      {giftStep && giftStep.adds.length > 0 && (
         <p className="text-xs text-stone-500 mt-2">
-          再 <b className="text-red-500">NT${(Number(giftNext.threshold) - giftBase).toLocaleString()}</b> 可升級為「{giftNext.reward}」
-          {giftNext.is_sold_out ? '（已送完）' : ''}
+          再 <b className="text-red-500">NT${giftStep.need.toLocaleString()}</b> 可多送：{giftText(giftStep.adds)}
         </p>
       )}
 
@@ -846,7 +905,9 @@ export default function BoothDashboard() {
                             {tierDrop && (
                               <p className="text-xs font-semibold text-amber-800 bg-amber-100 border border-amber-300 rounded-xl px-3 py-2">
                                 🎁 退款後{mergedSum > 0 ? '（含其他通路）' : ''}滿額金額 NT${(newInvoice + mergedSum).toLocaleString()}，
-                                {tierAfter ? `滿額活動由「${tierBefore.reward}」降為「${tierAfter.reward}」` : `已低於「${tierBefore.reward}」的門檻`}
+                                {giftsAfter.length
+                                  ? `應送贈品由「${giftText(giftsBefore)}」減為「${giftText(giftsAfter)}」`
+                                  : `已低於最低門檻，原應送「${giftText(giftsBefore)}」不再符合`}
                                 ，請依活動規則處理已給的贈品。
                               </p>
                             )}
@@ -955,8 +1016,8 @@ export default function BoothDashboard() {
               <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm">
                 <p className="text-xs text-stone-500">合併後滿額金額 <b className="text-stone-800">NT${giftBase.toLocaleString()}</b></p>
                 <p className="font-black text-red-700 mt-0.5">
-                  {giftTier
-                    ? (giftTier.is_sold_out ? `「${giftTier.reward}」已送完` : `應送 ${giftList.length} 項：${giftTier.reward}`)
+                  {giftList.length
+                    ? `應送 ${giftList.length} 項：${giftText(giftList)}`
                     : '尚未達到任何滿額門檻'}
                 </p>
               </div>
