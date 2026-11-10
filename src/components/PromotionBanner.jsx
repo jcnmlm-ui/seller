@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Gift, PartyPopper, Info, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useCart } from '../context/CartContext'
+import { computeGifts, nextGiftStep, giftText } from '../lib/gifts'
 
 // 活動說明條款內容，需要調整文字時改這裡即可
 const PROMO_TERMS = [
@@ -50,6 +51,7 @@ function PromoTermsModal({ onClose }) {
 // - 沒有設定任何啟用中的門檻時不顯示任何東西
 // - 購物車金額改變時（例如加入購物車）會觸發一次脈動提示
 // - 滿額以「發票金額」計算（實收金額扣除郵票金額），郵票金額不計入
+// - 循環制：以最高一階門檻為一個循環，每滿一個循環再送一整組；餘額再依門檻加送（算法見 lib/gifts.js）
 export default function PromotionBanner() {
   const { invoiceTotal: total, stampTotal } = useCart()
   const [tiers, setTiers]     = useState([])
@@ -80,52 +82,51 @@ export default function PromotionBanner() {
 
   if (loading || tiers.length === 0) return null
 
-  // 目前達成的最高一階（唯一會亮起打勾的）；超過它的較低門檻不再保持點亮
-  const achievedTiers = tiers.filter(t => total >= t.threshold)
-  const currentTier   = achievedTiers.length > 0 ? achievedTiers[achievedTiers.length - 1] : null
-  const nextTier       = tiers.find(t => total < t.threshold)
-  const allDone         = !nextTier
+  const calc     = computeGifts(tiers, total)
+  const gifts    = calc.gifts
+  const step     = nextGiftStep(tiers, total)
+  const topTier  = calc.topTier
+  const cycle    = Number(topTier.threshold)
+  const soldOutHit = calc.soldOut.length > 0
 
-  const prevThreshold  = currentTier?.threshold ?? 0
-  const progressPct    = nextTier
-    ? Math.min(100, Math.max(0, ((total - prevThreshold) / (nextTier.threshold - prevThreshold)) * 100))
+  const progressPct = step
+    ? Math.min(100, Math.max(0, ((total - step.prev) / (step.at - step.prev)) * 100))
     : 100
-
-  const currentSoldOut = currentTier?.is_sold_out
-  const nextSoldOut    = nextTier?.is_sold_out
+  const nextSoldOut = !!step?.tier?.is_sold_out
 
   return (
     <>
     <div className={`bg-gradient-to-r from-red-50 to-orange-50 border border-red-100 rounded-2xl px-4 py-3
       ${pulse ? 'promo-pulse' : ''}`}>
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <div className="flex items-center gap-1.5 min-w-0">
-          {allDone
-            ? <PartyPopper size={15} className="text-red-500 flex-shrink-0" />
-            : <Gift size={15} className="text-red-500 flex-shrink-0" />
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex items-start gap-1.5 min-w-0">
+          {gifts.length > 0
+            ? <PartyPopper size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
+            : <Gift size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
           }
           <span className="font-bold text-sm text-stone-800">
-            {allDone
-              ? (currentSoldOut
-                  ? `已達門檻，但贈品「${currentTier.reward}」目前已送完，請洽工作人員`
-                  : `已達最高門檻，可獲得「${currentTier.reward}」`)
-              : '滿額贈好禮'}
+            {gifts.length === 0
+              ? '滿額贈好禮'
+              : soldOutHit
+                ? `已達門檻，但贈品「${calc.soldOut.map(t => t.reward).join('、')}」目前已送完，請洽工作人員`
+                : <>目前可獲得：<span className="text-red-600">{giftText(gifts)}</span></>}
           </span>
         </div>
         <button
           onClick={() => setShowTerms(true)}
-          className="flex items-center gap-0.5 text-xs text-stone-400 hover:text-red-500 transition-colors flex-shrink-0"
+          className="flex items-center gap-0.5 text-xs text-stone-400 hover:text-red-500 transition-colors flex-shrink-0 mt-0.5"
         >
           <Info size={12} />
           活動說明
         </button>
       </div>
 
-      {/* 門檻梯子：任何時刻只有「目前這一階」亮起打勾，其餘（含已被超越的較低門檻）都是暗的；已送完的一律以橘色標示 */}
+      {/* 門檻梯子：本輪（餘額）達到的那一階亮起；已滿整輪的最高階顯示「×組數」；已送完的一律以橘色標示 */}
       <div className="flex flex-wrap gap-1.5 mb-2">
         {tiers.map(t => {
-          const isCurrent = t.id === currentTier?.id
-          const isNext    = t.id === nextTier?.id
+          const isTop     = t.id === topTier.id
+          const isCurrent = isTop ? calc.cycles > 0 : t.id === calc.remTier?.id
+          const isNext    = t.id === step?.tier?.id
           return (
             <span
               key={t.id}
@@ -139,14 +140,19 @@ export default function PromotionBanner() {
                       : 'bg-stone-100 text-stone-400 border-stone-200'}`}
             >
               {t.is_sold_out ? '⚠ ' : isCurrent ? '✓ ' : ''}
-              NT${t.threshold.toLocaleString()} <span className={t.is_sold_out ? 'line-through' : ''}>{t.reward}</span>
+              NT${Number(t.threshold).toLocaleString()} <span className={t.is_sold_out ? 'line-through' : ''}>{t.reward}</span>
+              {isTop && calc.cycles > 1 ? ` ×${calc.cycles}` : ''}
               {t.is_sold_out ? '（已送完）' : ''}
             </span>
           )
         })}
       </div>
 
-      {!allDone && (
+      <p className="text-xs text-stone-400 mb-2">
+        🔁 每滿 NT${cycle.toLocaleString()} 即可再獲得一組「{topTier.reward}」，餘額依門檻加送
+      </p>
+
+      {step && (
         <>
           <div className="h-1.5 bg-white rounded-full overflow-hidden mb-1.5">
             <div
@@ -156,8 +162,8 @@ export default function PromotionBanner() {
           </div>
           <p className="text-xs text-stone-600">
             {nextSoldOut
-              ? <>還差 <span className="font-bold text-red-500">NT${(nextTier.threshold - total).toLocaleString()}</span> 可達下一門檻，但贈品「{nextTier.reward}」<span className="font-semibold text-orange-500">已送完</span></>
-              : <>還差 <span className="font-bold text-red-500">NT${(nextTier.threshold - total).toLocaleString()}</span> 即可獲得「{nextTier.reward}」</>
+              ? <>還差 <span className="font-bold text-red-500">NT${step.need.toLocaleString()}</span> 可達下一門檻，但贈品「{step.tier.reward}」<span className="font-semibold text-orange-500">已送完</span></>
+              : <>還差 <span className="font-bold text-red-500">NT${step.need.toLocaleString()}</span> 即可多獲得「{giftText(step.adds)}」</>
             }
           </p>
         </>
