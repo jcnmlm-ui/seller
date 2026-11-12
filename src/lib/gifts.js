@@ -25,8 +25,10 @@ function mergeGift(list, g) {
 export function computeGifts(tiers, amount) {
   const sorted = [...tiers].sort((a, b) => Number(a.threshold) - Number(b.threshold))
   const out = { gifts: [], cycles: 0, rem: amount, topTier: null, remTier: null, soldOut: [] }
-  if (!sorted.length || amount <= 0) return out
+  if (!sorted.length) return out
   const top = sorted[sorted.length - 1]
+  out.topTier = top                      // 金額為 0（空購物車）時也要有最高一階，橫幅要用它顯示「每滿 N 元…」
+  if (amount <= 0) return out
   const cycle = Number(top.threshold)
   const cycles = Math.floor(amount / cycle)
   const rem = amount - cycles * cycle

@@ -86,6 +86,7 @@ export default function PromotionBanner() {
   const gifts    = calc.gifts
   const step     = nextGiftStep(tiers, total)
   const topTier  = calc.topTier
+  if (!topTier) return null   // 保險：任何情況下都不要因為橫幅讓整個頁面白屏
   const cycle    = Number(topTier.threshold)
   const soldOutHit = calc.soldOut.length > 0
 
