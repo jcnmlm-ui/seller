@@ -254,6 +254,15 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 - 滿額金額以發票金額計算（郵票金額不計入）
 - 活動說明視窗（PromoTermsModal）以 portal 掛到 `<body>`，避免外層 transform 讓 fixed 定位跑掉
 
+### 逐日釋放庫存（預購，migration 17）
+- 後台「商品管理」上方設定**全商品共用**的活動開始日、天數、每日權重(%)，合計必須 = 100；各商品編輯時勾「逐日釋放」，庫存欄變成「活動總量」
+- 累計開放量(第 d 天) = floor(總量 × 累計% / 100)，最後一天 = 總量；前一天沒賣完的留到後面；今日可買 = min(剩餘庫存, 累計開放量 − 已售)；開始日之前套用第 1 天；以台灣時間 00:00 換日
+  例：550 件、權重 10/15/15/20/20/20 → 每日新增 55/82/83/110/110/110
+- 由伺服器 `decrement_stock` 強制限制（超買會回錯誤訊息）；顧客頁透過 RPC `product_release_availability()` 顯示「今日剩 N 件／今日已售完」，每 60 秒與回到頁面時更新
+- 退款／減量回補庫存後，今日可買數量會自動增加（已售 = 總量 − 剩餘庫存）
+- 現場收銀台（CashierPage）維持不扣庫存，與預購分開；Excel 匯入匯出未包含 release 欄位
+- 計算邏輯：`src/lib/release.js`（後台預覽）與 SQL 規則一致
+
 ### 銷售報表
 - 篩選：期間（快捷+自訂）× 來源（全部/預購/現場）
 - 來源分布卡片、商品排行、付款方式分布、每日明細、訂單列表
@@ -282,6 +291,7 @@ repo 的 `supabase/` 資料夾只有前 3 個（初始架構）。
 | 14 | `14_order_refund.sql`：refunded 狀態、orders.refunded_amount、order_refunds 表、refund_order() |
 | 15 | `15_merge_other_channel.sql`：orders.merged_orders、orders.promo_gift |
 | 16 | `16_reduce_pending_order.sql`：orders.edit_log、reduce_pending_order() |
+| 17 | `17_daily_release.sql`：逐日釋放庫存（release_schedule 表、products.release_enabled/release_total、release_available()、product_release_availability()、改寫 decrement_stock） |
 
 ---
 

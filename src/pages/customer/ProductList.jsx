@@ -74,8 +74,13 @@ function PrivacyModal({ onAccept }) {
 
 // ── 商品卡片 ──────────────────────────────────────────────
 function ProductCard({ product, cartItem, onAdd, onUpdate }) {
-  const stockLabel = product.stock !== -1 && product.stock <= 5
-    ? `剩 ${product.stock} 件` : null
+  // _avail：逐日釋放商品「今天還能買幾件」（null＝不受逐日釋放限制）
+  const limited = product._avail != null
+  const todaySoldOut = limited && product._avail <= 0
+  const atLimit = limited && (cartItem?.quantity ?? 0) >= product._avail
+  const stockLabel = limited
+    ? (todaySoldOut ? null : `今日剩 ${product._avail} 件`)
+    : (product.stock !== -1 && product.stock <= 5 ? `剩 ${product.stock} 件` : null)
 
   return (
     <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden flex flex-col">
@@ -115,7 +120,11 @@ function ProductCard({ product, cartItem, onAdd, onUpdate }) {
           NT${product.price.toLocaleString()}
         </p>
 
-        {!cartItem ? (
+        {todaySoldOut ? (
+          <div className="w-full text-center text-xs font-bold text-stone-500 bg-stone-100 rounded-xl py-2 leading-snug">
+            今日已售完<br /><span className="font-normal">明天 00:00 開放更多</span>
+          </div>
+        ) : !cartItem ? (
           <button onClick={onAdd} className="btn-primary w-full text-sm py-2 !rounded-xl">
             加入購物車
           </button>
@@ -123,7 +132,8 @@ function ProductCard({ product, cartItem, onAdd, onUpdate }) {
           <div className="flex items-center justify-between bg-stone-50 rounded-xl px-2 py-1.5">
             <button className="qty-btn" onClick={() => onUpdate(cartItem.quantity - 1)}>−</button>
             <span className="font-bold text-stone-800 w-6 text-center">{cartItem.quantity}</span>
-            <button className="qty-btn" onClick={() => onUpdate(cartItem.quantity + 1)}>+</button>
+            <button className="qty-btn disabled:opacity-30" disabled={atLimit}
+              onClick={() => onUpdate(cartItem.quantity + 1)}>+</button>
           </div>
         )}
       </div>
@@ -149,17 +159,11 @@ export default function ProductList() {
     if (!localStorage.getItem('booth_privacy_accepted')) {
       setShowPrivacy(true)
     }
-    // 載入商品
-    supabase
-      .from('products')
-      .select('*')
-      .eq('is_available', true)
-      .order('sort_order', { ascending: true })
-      .order('created_at', { ascending: true })
-      .then(({ data, error }) => {
-        if (!error) setProducts(data ?? [])
-        setLoading(false)
-      })
+    // 載入商品（並定時／回到頁面時重新整理「今日開放數量」）
+    loadProducts().then(() => setLoading(false))
+    const timer = setInterval(loadProducts, 60000)
+    const onVisible = () => { if (document.visibilityState === 'visible') loadProducts() }
+    document.addEventListener('visibilitychange', onVisible)
     // 取得目前最高的滿額門檻（試手氣的目標金額）；已送完的贈品不列入目標
     supabase
       .from('promotion_tiers')
@@ -170,7 +174,24 @@ export default function ProductList() {
       .limit(1)
       .maybeSingle()
       .then(({ data }) => setLuckyTarget(data?.threshold ?? null))
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
+
+  async function loadProducts() {
+    const [{ data, error }, avail] = await Promise.all([
+      supabase.from('products').select('*').eq('is_available', true)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true }),
+      // 逐日釋放：今日可買數量；函式不存在或失敗時視為不限制
+      supabase.rpc('product_release_availability'),
+    ])
+    if (error) return
+    const map = new Map((avail?.data ?? []).map(r => [r.product_id, r.available]))
+    setProducts((data ?? []).map(p => ({ ...p, _avail: map.has(p.id) ? map.get(p.id) : null })))
+  }
 
   function acceptPrivacy() {
     localStorage.setItem('booth_privacy_accepted', 'true')
@@ -196,7 +217,8 @@ export default function ProductList() {
       .map(p => {
         const invoiceValue = (Number(p.price) || 0) - (Number(p.stamp_amount) || 0)
         const inCartQty = items.find(i => i.id === p.id)?.quantity || 0
-        const remainingStock = p.stock === -1 ? Infinity : Math.max(0, p.stock - inCartQty)
+        const cap = Math.min(p.stock === -1 ? Infinity : p.stock, p._avail ?? Infinity)
+        const remainingStock = Math.max(0, cap - inCartQty)
         return { product: p, invoiceValue, remainingStock }
       })
       .filter(entry => entry.invoiceValue > 0 && entry.remainingStock > 0)

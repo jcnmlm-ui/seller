@@ -17,11 +17,12 @@ import { CSS } from '@dnd-kit/utilities'
 import * as XLSX from 'xlsx'
 import { supabase } from '../../lib/supabase'
 import { toast } from '../../components/StatusBadge'
+import { releasePlan, weightsSum, weightsValid, taipeiToday, taipeiDayIndex } from '../../lib/release'
 
 const EMPTY_FORM = {
   name: '', description: '', barcode: '', price: '',
   stock: '-1', is_available: true, image_url: '',
-  stamp_amount: '0',
+  stamp_amount: '0', release_enabled: false,
 }
 
 // ── 匯出／匯入 Excel 對應的資料庫欄位（順序即欄位順序）──────
@@ -54,7 +55,7 @@ function excelToNum(val, fallback) {
 }
 
 // ── 單一商品卡（可拖曳）────────────────────────────────────
-function SortableProduct({ product, onEdit, onDelete, onToggle }) {
+function SortableProduct({ product, onEdit, onDelete, onToggle, todayAvail }) {
   const {
     attributes, listeners, setNodeRef,
     transform, transition, isDragging,
@@ -112,6 +113,11 @@ function SortableProduct({ product, onEdit, onDelete, onToggle }) {
             </span>
           )}
           <span className="text-stone-400">庫存：{product.stock === -1 ? '無限' : `${product.stock} 件`}</span>
+          {product.release_enabled && todayAvail !== null && (
+            <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full">
+              逐日釋放・今日可買 {todayAvail}
+            </span>
+          )}
         </div>
       </div>
 
@@ -143,6 +149,13 @@ export default function ProductManage() {
   const [saving, setSaving]     = useState(false)
   const [uploading, setUploading] = useState(false)
   const [activeId, setActiveId] = useState(null)  // 拖曳中的 id
+
+  // ── 逐日釋放設定（全商品共用）──────────────────────────
+  const [schedule, setSchedule] = useState(null)         // 已儲存：{ start_date, weights:number[] } | null
+  const [showSchedule, setShowSchedule] = useState(false)
+  const [schedStart, setSchedStart] = useState('')
+  const [schedWeights, setSchedWeights] = useState([])   // 字串陣列（輸入框用）
+  const [schedSaving, setSchedSaving] = useState(false)
   const fileInputRef = useRef(null)
 
   // ── 匯出／匯入／清空 ──────────────────────────────────
@@ -174,6 +187,49 @@ export default function ProductManage() {
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true })
     setProducts(data ?? [])
+    const { data: sch } = await supabase
+      .from('release_schedule').select('*').eq('id', 'main').maybeSingle()
+    setSchedule(sch ? { start_date: sch.start_date, weights: sch.weights } : null)
+  }
+
+  // 今日開放數量（與資料庫規則一致；僅供顯示，實際以伺服器為準）
+  function todayAvailable(p) {
+    if (!p.release_enabled || p.release_total == null || p.stock === -1 || !schedule) return null
+    const { cumulative } = releasePlan(p.release_total, schedule.weights)
+    const idx = taipeiDayIndex(schedule.start_date, schedule.weights.length) - 1
+    const sold = Math.max(0, p.release_total - p.stock)
+    return Math.max(0, Math.min(p.stock, cumulative[idx] - sold))
+  }
+
+  // ── 逐日釋放設定 ──────────────────────────────────────
+  function openSchedule() {
+    setSchedStart(schedule?.start_date ?? taipeiToday())
+    setSchedWeights((schedule?.weights ?? [100]).map(String))
+    setShowSchedule(true)
+  }
+  function setDays(n) {
+    n = Math.max(1, Math.min(30, parseInt(n) || 1))
+    setSchedWeights(w => n <= w.length ? w.slice(0, n) : [...w, ...Array(n - w.length).fill('0')])
+  }
+  function evenSplit() {
+    const n = schedWeights.length
+    const base = Math.floor((100 / n) * 100) / 100
+    const arr = Array(n).fill(base)
+    arr[n - 1] = Math.round((100 - base * (n - 1)) * 100) / 100
+    setSchedWeights(arr.map(String))
+  }
+  async function saveSchedule() {
+    const nums = schedWeights.map(w => Number(w) || 0)
+    if (!schedStart) { toast('請選擇活動開始日', 'error'); return }
+    if (!weightsValid(nums)) { toast(`每日權重合計必須等於 100%（目前 ${weightsSum(nums)}%）`, 'error'); return }
+    setSchedSaving(true)
+    const { error } = await supabase.from('release_schedule')
+      .upsert({ id: 'main', start_date: schedStart, weights: nums })
+    setSchedSaving(false)
+    if (error) { toast('儲存失敗：' + error.message + '（請確認已執行 17_daily_release.sql）', 'error'); return }
+    toast('已儲存逐日釋放設定', 'success')
+    setShowSchedule(false)
+    load()
   }
 
   // ── 拖曳排序 ──────────────────────────────────────────
@@ -212,6 +268,9 @@ export default function ProductManage() {
       stock: String(p.stock), is_available: p.is_available,
       image_url: p.image_url ?? '',
       stamp_amount: String(p.stamp_amount ?? 0),
+      release_enabled: !!p.release_enabled,
+      // 逐日釋放中：表單的「活動總量」= release_total（不是剩餘庫存）
+      ...(p.release_enabled && p.release_total != null ? { stock: String(p.release_total) } : {}),
     })
     setShowForm(true)
   }
@@ -253,13 +312,35 @@ export default function ProductManage() {
   async function handleSave() {
     if (!form.name.trim())               { toast('請填寫商品名稱', 'error'); return }
     if (!form.price || isNaN(form.price)){ toast('請填寫有效的價格', 'error'); return }
+    const inputStock = parseInt(form.stock)
+    if (form.release_enabled) {
+      if (!schedule)               { toast('請先設定「逐日釋放」的天數與權重', 'error'); return }
+      if (!(inputStock > 0))       { toast('逐日釋放的活動總量必須大於 0', 'error'); return }
+    }
     setSaving(true)
+    // 逐日釋放：release_total = 活動總量；剩餘庫存 = 總量 − 已售（已售 = 舊總量 − 舊庫存）
+    let stockVal = parseInt(form.stock) || -1
+    let releaseTotal = null
+    if (form.release_enabled) {
+      releaseTotal = inputStock
+      if (editing?.release_enabled && editing.release_total != null) {
+        const sold = Math.max(0, editing.release_total - editing.stock)
+        stockVal = Math.max(0, inputStock - sold)
+      } else {
+        stockVal = inputStock
+      }
+    } else if (editing?.release_enabled && editing.release_total != null && inputStock === editing.release_total) {
+      // 關閉逐日釋放、且數字沒改（仍是活動總量）→ 保留目前剩餘庫存，不要被重設回總量
+      stockVal = editing.stock
+    }
     const payload = {
       name:         form.name.trim(),
       description:  form.description.trim() || null,
       barcode:      form.barcode.trim() || null,
       price:        parseFloat(form.price),
-      stock:        parseInt(form.stock) || -1,
+      stock:        stockVal,
+      release_enabled: form.release_enabled,
+      release_total:   releaseTotal,
       is_available: form.is_available,
       image_url:    form.image_url || null,
       stamp_amount: parseFloat(form.stamp_amount) || 0,
@@ -509,6 +590,18 @@ export default function ProductManage() {
 
       {/* 商品列表（可拖曳）*/}
       <div className="max-w-3xl mx-auto px-4 py-5">
+        {/* 逐日釋放設定摘要 */}
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-3 flex items-center justify-between gap-3">
+          <div className="min-w-0 text-sm">
+            <p className="font-bold text-amber-800">📅 逐日釋放庫存（全商品共用）</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              {schedule
+                ? `${schedule.start_date} 起，共 ${schedule.weights.length} 天：${schedule.weights.join('% / ')}%　・今天是第 ${taipeiDayIndex(schedule.start_date, schedule.weights.length)} 天`
+                : '尚未設定。設定後，在各商品開啟「逐日釋放」即可分天開放購買'}
+            </p>
+          </div>
+          <button onClick={openSchedule} className="btn-secondary text-sm py-1.5 flex-shrink-0">設定</button>
+        </div>
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -527,6 +620,7 @@ export default function ProductManage() {
                   onEdit={openEdit}
                   onDelete={handleDelete}
                   onToggle={toggleAvailable}
+                  todayAvail={todayAvailable(p)}
                 />
               ))}
             </div>
@@ -554,6 +648,79 @@ export default function ProductManage() {
       </div>
 
       {/* 新增/編輯 Modal */}
+      {/* 逐日釋放設定視窗 */}
+      {showSchedule && (() => {
+        const nums = schedWeights.map(w => Number(w) || 0)
+        const sum = weightsSum(nums)
+        const ok = weightsValid(nums)
+        const enabledProducts = products.filter(p => p.release_enabled && p.release_total != null)
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <div className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl max-h-[92vh] flex flex-col">
+              <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-stone-100">
+                <h2 className="font-bold text-stone-900">逐日釋放庫存設定</h2>
+                <button onClick={() => setShowSchedule(false)} className="p-1 text-stone-400"><X size={20} /></button>
+              </div>
+              <div className="p-5 space-y-4 overflow-y-auto">
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  每個商品的「活動總量」依下列百分比逐日累計開放；前一天沒賣完的會留到後面。
+                  活動開始日之前套用第 1 天的量，最後一天開放全部。以台灣時間 00:00 換日。
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">活動開始日</label>
+                    <input type="date" className="input" value={schedStart} onChange={e => setSchedStart(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">活動天數</label>
+                    <input type="number" min="1" max="30" className="input" value={schedWeights.length}
+                      onChange={e => setDays(e.target.value)} />
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="label !mb-0">每日釋放比例（%）</label>
+                    <button onClick={evenSplit} className="text-xs text-blue-600 underline">平均分配</button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {schedWeights.map((w, i) => (
+                      <div key={i}>
+                        <p className="text-xs text-stone-400 mb-0.5">第 {i + 1} 天</p>
+                        <input type="number" min="0" step="0.01" className="input text-sm py-2" value={w}
+                          onChange={e => setSchedWeights(arr => arr.map((x, j) => j === i ? e.target.value : x))} />
+                      </div>
+                    ))}
+                  </div>
+                  <p className={`text-sm font-bold mt-2 ${ok ? 'text-green-600' : 'text-red-500'}`}>
+                    合計 {sum}% {ok ? '✓' : '（必須等於 100%）'}
+                  </p>
+                </div>
+
+                {ok && enabledProducts.length > 0 && (
+                  <div>
+                    <p className="label">各商品每日新增數量（預覽）</p>
+                    <div className="space-y-1.5">
+                      {enabledProducts.map(p => (
+                        <div key={p.id} className="bg-stone-50 rounded-lg px-3 py-2 text-xs">
+                          <p className="font-bold text-stone-700">{p.name}（總量 {p.release_total}）</p>
+                          <p className="text-stone-500 mt-0.5">{releasePlan(p.release_total, nums).daily.join(' / ')}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="px-5 pb-5 pt-3 flex gap-3 border-t border-stone-100">
+                <button onClick={() => setShowSchedule(false)} className="btn-secondary flex-1">取消</button>
+                <button onClick={saveSchedule} disabled={schedSaving || !ok} className="btn-primary flex-1 disabled:opacity-50">
+                  {schedSaving ? '儲存中…' : '儲存設定'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {showForm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden"
@@ -645,10 +812,28 @@ export default function ProductManage() {
 
               {/* 庫存 */}
               <div>
-                <label className="label">庫存數量（-1 = 無限）</label>
+                <label className="label">
+                  {form.release_enabled ? '活動總量（依設定逐日釋放）' : '庫存數量（-1 = 無限）'}
+                </label>
                 <input className="input" type="number" min="-1" value={form.stock}
                   onChange={e => setForm(f=>({...f,stock:e.target.value}))}
                   placeholder="-1" />
+                <label className="flex items-center gap-2 mt-2 text-sm text-stone-700 cursor-pointer">
+                  <input type="checkbox" checked={form.release_enabled}
+                    onChange={e => setForm(f=>({...f,release_enabled:e.target.checked}))}
+                    className="w-4 h-4 rounded accent-amber-500" />
+                  逐日釋放（依上方「逐日釋放庫存」的天數與權重分天開放）
+                </label>
+                {form.release_enabled && schedule && parseInt(form.stock) > 0 && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    每日新增：{releasePlan(parseInt(form.stock), schedule.weights).daily.join(' / ')} 件
+                  </p>
+                )}
+                {form.release_enabled && editing?.release_enabled && (
+                  <p className="text-xs text-stone-400 mt-1">
+                    修改總量時，已售出的數量會自動扣除（目前剩餘庫存 {editing.stock} 件）。
+                  </p>
+                )}
               </div>
 
               {/* 上架 */}
