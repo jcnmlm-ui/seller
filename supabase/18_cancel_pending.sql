@@ -4,8 +4,10 @@
 -- 規則：
 --   · 新增訂單狀態 'cancelled'（已取消）：回補庫存、不計入報表、不出現在出貨後台
 --   · 只有「待收款(pending)」的預購訂單可以取消（已收款請走退貨／退款）
---   · 預購訂單若在「下單當天」（台灣時間）沒結帳，隔天 00:00 之後自動取消並補回庫存
+--   · 每天台灣時間 19:00（攤位 18:00 下班，預留 1 小時緩衝）清掉「19:00 以前下單、仍待收款」的預購訂單並補回庫存
+--     例：今天 10:00 下的單，今天 19:00 後取消；今天 20:00 下的單，明天 19:00 後取消
 --     （不需要排程：有顧客下單、顧客開商品頁、或後台開待收款頁時，會順便清理）
+--   · 要改清除時間，只要改 pending_cutoff() 裡的 19
 -- ============================================================
 
 -- 1) 狀態允許 'cancelled'
@@ -92,23 +94,33 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 REVOKE ALL ON FUNCTION public.cancel_pending_orders(uuid[], text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.cancel_pending_orders(uuid[], text) TO authenticated;
 
--- 4) 自動清除：下單日（台灣時間）已過、仍待收款的預購訂單
+-- 4) 自動清除：「最近一次 19:00（台灣時間）」以前下單、仍待收款的預購訂單
+CREATE OR REPLACE FUNCTION public.pending_cutoff(p_now timestamptz DEFAULT now())
+RETURNS timestamptz AS $$
+DECLARE
+  v_local  timestamp := p_now AT TIME ZONE 'Asia/Taipei';
+  v_cut    timestamp := date_trunc('day', p_now AT TIME ZONE 'Asia/Taipei') + interval '19 hours';
+BEGIN
+  IF v_local < v_cut THEN v_cut := v_cut - interval '1 day'; END IF;
+  RETURN v_cut AT TIME ZONE 'Asia/Taipei';
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 CREATE OR REPLACE FUNCTION public.expire_pending_orders()
 RETURNS integer AS $$
 DECLARE
   r record;
   n integer := 0;
-  v_today_start timestamptz :=
-    (date_trunc('day', now() AT TIME ZONE 'Asia/Taipei')) AT TIME ZONE 'Asia/Taipei';
+  v_cutoff timestamptz := public.pending_cutoff();
 BEGIN
   FOR r IN
     SELECT id FROM public.orders
     WHERE status = 'pending'
       AND COALESCE(source, 'online') <> 'booth_cashier'
-      AND created_at < v_today_start
+      AND created_at < v_cutoff
     ORDER BY created_at
   LOOP
-    IF public.cancel_order_core(r.id, '逾期未結帳（隔日 00:00 自動取消）', 'system') THEN
+    IF public.cancel_order_core(r.id, '逾期未結帳（每日 19:00 自動取消）', 'system') THEN
       n := n + 1;
     END IF;
   END LOOP;

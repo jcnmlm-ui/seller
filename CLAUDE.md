@@ -142,7 +142,7 @@ is_active, is_sold_out
 - `refund_order(order_id, items, ref, reason)`：已收款訂單退貨／退款，單一交易內完成「扣品項、改金額、回補庫存、寫紀錄」
 - `reduce_pending_order(order_id, items)`：待收款訂單減少品項數量，回補庫存並寫入 edit_log
 - `cancel_pending_orders(order_ids, reason)`：後台取消待收款訂單（可多筆），回補庫存、狀態改 cancelled
-- `expire_pending_orders()`：把「下單日（台灣時間）已過」仍待收款的預購訂單自動取消並補回庫存；由 decrement_stock、顧客商品頁載入、後台待收款頁載入時順便觸發（不需排程）
+- `expire_pending_orders()`：每天台灣時間 19:00 把「19:00 以前下單」仍待收款的預購訂單自動取消並補回庫存；由 decrement_stock、顧客商品頁載入、後台待收款頁載入時順便觸發（不需排程）
 
 ### products
 ```sql
@@ -175,7 +175,7 @@ booth_cashier 現場銷售：直接建立 status='delivered'
 shipped / delivered 不可在攤位退款
 
 取消：只有 pending 預購訂單可取消 → status='cancelled'（回補庫存、不計入報表與營業額、不出現在出貨後台）
-  手動：後台「待收款」頁；自動：下單當天沒結帳，隔天 00:00 後清除
+  手動：後台「待收款」頁；自動：每天 19:00（攤位 18:00 下班預留 1 小時）清掉 19:00 以前下的未結帳訂單
 ```
 
 ---
@@ -273,7 +273,7 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 ### 待收款訂單管理（migration 18，`/admin/pending`）
 - 預購下單即扣庫存，未結帳的訂單會佔庫存；此頁列出待收款／已取消訂單，可用訂單號、姓名、手機搜尋，依下單日（今天／昨天）與商品篩選，單筆或勾選多筆取消
 - 頁面上方顯示「待收款佔住的庫存」依商品彙整
-- 訂單確認頁（OrderConfirm）提示「請於當天 24:00 前到攤位結帳，逾時自動取消」
+- 訂單確認頁（OrderConfirm）提示「請於 M/D 19:00 前到攤位結帳，逾時自動取消」（10:00 下單→當天 19:00；20:00 下單→隔天 19:00；邏輯在 `src/lib/pending.js`，與 SQL `pending_cutoff()` 一致，改時間兩邊都要改）
 - 攤位收款頁掃到已取消訂單會顯示「此訂單已取消」，不能收款
 
 ### 銷售報表
@@ -305,7 +305,7 @@ repo 的 `supabase/` 資料夾只有前 3 個（初始架構）。
 | 15 | `15_merge_other_channel.sql`：orders.merged_orders、orders.promo_gift |
 | 16 | `16_reduce_pending_order.sql`：orders.edit_log、reduce_pending_order() |
 | 17 | `17_daily_release.sql`：逐日釋放庫存（release_schedule 表、products.release_enabled/release_total、release_available()、product_release_availability()、改寫 decrement_stock） |
-| 18 | `18_cancel_pending.sql`：cancelled 狀態與欄位、cancel_order_core()、cancel_pending_orders()、expire_pending_orders()、decrement_stock 加入過期清理 |
+| 18 | `18_cancel_pending.sql`：cancelled 狀態與欄位、cancel_order_core()、cancel_pending_orders()、pending_cutoff()、expire_pending_orders()、decrement_stock 加入過期清理 |
 
 ---
 

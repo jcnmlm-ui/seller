@@ -4,6 +4,7 @@ import { ArrowLeft, RefreshCw, Search, XCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { toast } from '../../components/StatusBadge'
 import { taipeiToday } from '../../lib/release'
+import { isPendingExpired, expiresLabel, PENDING_EXPIRE_HOUR } from '../../lib/pending'
 
 const tpDate = iso => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
 const tpTime = iso => new Date(iso).toLocaleString('zh-TW', {
@@ -102,7 +103,7 @@ export default function PendingOrders() {
             <Link to="/admin" className="btn-ghost p-2 flex-shrink-0"><ArrowLeft size={20} /></Link>
             <div className="min-w-0">
               <h1 className="font-bold text-stone-900">待收款訂單</h1>
-              <p className="text-xs text-stone-400">未結帳的預購訂單會佔住庫存；下單日已過的會在隔天 00:00 自動取消</p>
+              <p className="text-xs text-stone-400">未結帳的預購訂單會佔住庫存；每天 {PENDING_EXPIRE_HOUR}:00 會自動取消當時仍未結帳的訂單</p>
             </div>
           </div>
           <button onClick={load} className="btn-secondary p-2.5" title="重新整理"><RefreshCw size={16} /></button>
@@ -174,7 +175,7 @@ export default function PendingOrders() {
           <div className="space-y-2">
             {rows.map(o => {
               const items = o.order_items ?? []
-              const isToday = tpDate(o.created_at) === today
+              const expired = isPendingExpired(o.created_at)
               return (
                 <div key={o.id} className="bg-white border border-stone-200 rounded-xl px-4 py-3 flex gap-3">
                   {tab === 'pending' && (
@@ -186,8 +187,8 @@ export default function PendingOrders() {
                       <span className="font-mono font-bold text-stone-900 text-sm">{o.order_no}</span>
                       <span className="text-xs text-stone-400">{tpTime(o.created_at)}</span>
                       {tab === 'pending' && (
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${isToday ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
-                          {isToday ? '今天下單' : '已過期，待清除'}
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${expired ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-700'}`}>
+                          {expired ? '已過期，待清除' : `${expiresLabel(o.created_at)} 自動取消`}
                         </span>
                       )}
                     </div>

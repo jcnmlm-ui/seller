@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 import { STATUS_CONFIG, PAYMENT_LABELS } from '../../config/store'
 import { useEnabledPaymentMethods } from '../../hooks/useEnabledPaymentMethods'
 import { Wallet } from 'lucide-react'
+import { expiresLabel } from '../../lib/pending'
 
 // 郵局包裹追蹤網址
 const POST_TRACK_URL = 'https://postserv.post.gov.tw/pstatus/TrackMail.jsp?id='
@@ -83,7 +84,7 @@ export default function OrderConfirm() {
 
         {isPending && (
           <div className="bg-amber-50 border border-amber-300 rounded-2xl px-4 py-3 text-sm text-amber-900 leading-relaxed">
-            <p className="font-bold">⏰ 請於今天（{new Date(order.created_at).toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', month: 'numeric', day: 'numeric' })}）24:00 前到攤位結帳</p>
+            <p className="font-bold">⏰ 請於 {expiresLabel(order.created_at)} 前到攤位結帳</p>
             <p className="text-xs mt-0.5 text-amber-800">逾時未結帳，訂單會自動取消並釋出庫存，需重新下單，商品可能已被購買完畢。</p>
           </div>
         )}
