@@ -89,6 +89,7 @@ settings.json（印表機名稱等設定）
 | `/#/admin/products` | ProductManage | 商品管理 |
 | `/#/admin/reports` | ReportsDashboard | 銷售報表 |
 | `/#/admin/settings` | SettingsPage | 系統設定 |
+| `/#/admin/pending` | PendingOrders | 待收款訂單清單（查詢／篩選／取消）|
 
 ---
 
@@ -110,7 +111,8 @@ promo_gift (text),     -- 收款當下記錄的應送贈品，例「鑰匙圈×3
 edit_log (jsonb),      -- 收款前數量調整紀錄（migration 16）
 created_at
 ```
-status 允許值：`pending / paid / picking / packed / shipped / delivered / refunded`
+status 允許值：`pending / paid / picking / packed / shipped / delivered / refunded / cancelled`
+cancelled_at, cancelled_reason, cancelled_by（migration 18）
 
 ### order_items
 ```sql
@@ -139,6 +141,8 @@ is_active, is_sold_out
 - `decrement_stock(product_ids, quantities)`：下單扣庫存
 - `refund_order(order_id, items, ref, reason)`：已收款訂單退貨／退款，單一交易內完成「扣品項、改金額、回補庫存、寫紀錄」
 - `reduce_pending_order(order_id, items)`：待收款訂單減少品項數量，回補庫存並寫入 edit_log
+- `cancel_pending_orders(order_ids, reason)`：後台取消待收款訂單（可多筆），回補庫存、狀態改 cancelled
+- `expire_pending_orders()`：把「下單日（台灣時間）已過」仍待收款的預購訂單自動取消並補回庫存；由 decrement_stock、顧客商品頁載入、後台待收款頁載入時順便觸發（不需排程）
 
 ### products
 ```sql
@@ -169,6 +173,9 @@ booth_cashier 現場銷售：直接建立 status='delivered'
   部分退 → 狀態不變，品項數量與金額直接更新
   整筆退 → status='refunded'（不出現在出貨後台、不計入營業額）
 shipped / delivered 不可在攤位退款
+
+取消：只有 pending 預購訂單可取消 → status='cancelled'（回補庫存、不計入報表與營業額、不出現在出貨後台）
+  手動：後台「待收款」頁；自動：下單當天沒結帳，隔天 00:00 後清除
 ```
 
 ---
@@ -263,6 +270,12 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 - 現場收銀台（CashierPage）維持不扣庫存，與預購分開；Excel 匯入匯出未包含 release 欄位
 - 計算邏輯：`src/lib/release.js`（後台預覽）與 SQL 規則一致
 
+### 待收款訂單管理（migration 18，`/admin/pending`）
+- 預購下單即扣庫存，未結帳的訂單會佔庫存；此頁列出待收款／已取消訂單，可用訂單號、姓名、手機搜尋，依下單日（今天／昨天）與商品篩選，單筆或勾選多筆取消
+- 頁面上方顯示「待收款佔住的庫存」依商品彙整
+- 訂單確認頁（OrderConfirm）提示「請於當天 24:00 前到攤位結帳，逾時自動取消」
+- 攤位收款頁掃到已取消訂單會顯示「此訂單已取消」，不能收款
+
 ### 銷售報表
 - 篩選：期間（快捷+自訂）× 來源（全部/預購/現場）
 - 來源分布卡片、商品排行、付款方式分布、每日明細、訂單列表
@@ -292,6 +305,7 @@ repo 的 `supabase/` 資料夾只有前 3 個（初始架構）。
 | 15 | `15_merge_other_channel.sql`：orders.merged_orders、orders.promo_gift |
 | 16 | `16_reduce_pending_order.sql`：orders.edit_log、reduce_pending_order() |
 | 17 | `17_daily_release.sql`：逐日釋放庫存（release_schedule 表、products.release_enabled/release_total、release_available()、product_release_availability()、改寫 decrement_stock） |
+| 18 | `18_cancel_pending.sql`：cancelled 狀態與欄位、cancel_order_core()、cancel_pending_orders()、expire_pending_orders()、decrement_stock 加入過期清理 |
 
 ---
 

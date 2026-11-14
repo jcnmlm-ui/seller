@@ -57,7 +57,7 @@ export default function ReportsDashboard() {
     let q = supabase
       .from('orders')
       .select('id,order_no,receiver_name,receiver_phone,total_amount,status,payment_method,created_at,shipped_at,source')
-      .not('status', 'in', '(pending,refunded)')
+      .not('status', 'in', '(pending,refunded,cancelled)')
       .order('created_at', { ascending: false })
     if (sourceFilter !== 'all') q = q.eq('source', sourceFilter)
     if (s) q = q.gte('created_at', s.toISOString())

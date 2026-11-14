@@ -52,6 +52,7 @@ export default function OrderConfirm() {
 
   const statusCfg = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.pending
   const isPending  = order.status === 'pending'
+  const isCancelled = order.status === 'cancelled'
   const isShipped  = order.status === 'shipped' || order.status === 'delivered'
   const qrValue    = window.location.href
   const stampTotal = items.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.quantity, 0)
@@ -62,7 +63,7 @@ export default function OrderConfirm() {
       <div className={`py-8 px-6 text-center text-white
         ${isPending ? 'bg-red-500' : isShipped ? 'bg-green-600' : 'bg-stone-700'}`}>
         <div className="text-5xl mb-3">
-          {isPending ? '✅' : isShipped ? '🚚' : '📦'}
+          {isPending ? '✅' : isCancelled ? '🚫' : isShipped ? '🚚' : '📦'}
         </div>
         <h1 className="text-2xl font-black mb-1">
           {isPending ? '預購成功！' : `訂單${statusCfg.label}`}
@@ -70,12 +71,22 @@ export default function OrderConfirm() {
         {isPending && (
           <p className="text-sm opacity-80">請保留此畫面，前往攤位出示結帳</p>
         )}
+        {isCancelled && (
+          <p className="text-sm opacity-80">此訂單已取消，庫存已釋出，如要購買請重新下單</p>
+        )}
         {isShipped && order.tracking_no && (
           <p className="text-sm opacity-90 mt-1">包裹已出貨，可點擊下方連結追蹤</p>
         )}
       </div>
 
       <div className="max-w-sm mx-auto px-4 py-5 space-y-4 fade-up">
+
+        {isPending && (
+          <div className="bg-amber-50 border border-amber-300 rounded-2xl px-4 py-3 text-sm text-amber-900 leading-relaxed">
+            <p className="font-bold">⏰ 請於今天（{new Date(order.created_at).toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', month: 'numeric', day: 'numeric' })}）24:00 前到攤位結帳</p>
+            <p className="text-xs mt-0.5 text-amber-800">逾時未結帳，訂單會自動取消並釋出庫存，需重新下單，商品可能已被購買完畢。</p>
+          </div>
+        )}
 
         {/* 訂單號 + QR */}
         <div className="card p-5 text-center">

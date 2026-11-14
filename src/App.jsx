@@ -15,6 +15,7 @@ import ProductManage    from './pages/admin/ProductManage'
 import ReportsDashboard from './pages/admin/ReportsDashboard'
 import SettingsPage     from './pages/admin/SettingsPage'
 import PromotionManage  from './pages/admin/PromotionManage'
+import PendingOrders    from './pages/admin/PendingOrders'
 import LoginPage        from './pages/LoginPage'
 
 export default function App() {
@@ -40,6 +41,7 @@ export default function App() {
               <Route path="/admin/products"  element={<ProtectedRoute><ProductManage /></ProtectedRoute>} />
               <Route path="/admin/reports"   element={<ProtectedRoute><ReportsDashboard /></ProtectedRoute>} />
               <Route path="/admin/settings"  element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+              <Route path="/admin/pending"    element={<ProtectedRoute><PendingOrders /></ProtectedRoute>} />
               <Route path="/admin/promotions" element={<ProtectedRoute><PromotionManage /></ProtectedRoute>} />
 
               <Route path="*" element={<Navigate to="/" replace />} />

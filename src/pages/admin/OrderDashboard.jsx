@@ -631,6 +631,12 @@ export default function OrderDashboard() {
             <span className="text-[10px]">重新整理</span>
           </button>
         
+          <Link to="/admin/pending"
+            className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
+            <span className="text-sm leading-none">⏳</span>
+            <span className="text-[10px]">待收款</span>
+          </Link>
+
           <Link to="/admin/products"
             className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
             <Package size={15} />

@@ -52,6 +52,7 @@ export default function OrderQuery() {
     shipped:   { label: '已出貨', bg: 'bg-green-100', text: 'text-green-700' },
     delivered: { label: '已送達', bg: 'bg-teal-100', text: 'text-teal-700' },
     refunded:  { label: '已退款', bg: 'bg-stone-200', text: 'text-stone-500' },
+    cancelled: { label: '已取消', bg: 'bg-stone-200', text: 'text-stone-500' },
   }
 
   return (

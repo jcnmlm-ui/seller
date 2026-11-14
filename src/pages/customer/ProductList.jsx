@@ -181,6 +181,8 @@ export default function ProductList() {
   }, [])
 
   async function loadProducts() {
+    // 先清掉下單日已過、仍未結帳的訂單（庫存補回）；失敗不影響顯示
+    await supabase.rpc('expire_pending_orders').then(() => {}, () => {})
     const [{ data, error }, avail] = await Promise.all([
       supabase.from('products').select('*').eq('is_available', true)
         .order('sort_order', { ascending: true })

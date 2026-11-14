@@ -73,7 +73,7 @@ export default function BoothDashboard() {
     const today = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' }) + 'T00:00:00+08:00').toISOString()
     // 待結帳、整筆退款的訂單不算營業額；部分退款的訂單 total_amount 已是退款後金額
     const { data } = await supabase
-      .from('orders').select('total_amount').not('status', 'in', '(pending,refunded)').gte('created_at', today)
+      .from('orders').select('total_amount').not('status', 'in', '(pending,refunded,cancelled)').gte('created_at', today)
     if (data) setTodayStats({
       count: data.length,
       total: data.reduce((s, r) => s + r.total_amount, 0),
@@ -395,7 +395,7 @@ export default function BoothDashboard() {
   const isPending = order?.status === 'pending'
 
   // 滿額贈品提示卡（待收款時即時試算；已收款則顯示當時的合併紀錄）
-  const giftCard = order && order.status !== 'refunded' && tiers.length > 0 ? (
+  const giftCard = order && order.status !== 'refunded' && order.status !== 'cancelled' && tiers.length > 0 ? (
     <div className="rounded-2xl border border-red-200 bg-gradient-to-r from-red-50 to-orange-50 px-5 py-4">
       <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
         <p className="text-sm font-black text-red-700">🎁 滿額贈品</p>
@@ -523,7 +523,7 @@ export default function BoothDashboard() {
                 </p>
                 <div className="space-y-2">
                   {phoneResults.map(m => {
-                    const statusLabel = { pending:'待收款', paid:'已付款', picking:'揀貨中', packed:'已包裝', shipped:'已出貨', delivered:'已送達', refunded:'已退款' }[m.status] ?? m.status
+                    const statusLabel = { pending:'待收款', paid:'已付款', picking:'揀貨中', packed:'已包裝', shipped:'已出貨', delivered:'已送達', refunded:'已退款', cancelled:'已取消' }[m.status] ?? m.status
                     return (
                       <button
                         key={m.id}
@@ -533,7 +533,7 @@ export default function BoothDashboard() {
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-mono text-xs text-stone-500">{m.order_no}</span>
                           <span className={`text-xs font-bold px-2 py-0.5 rounded-full
-                            ${m.status === 'pending' ? 'bg-amber-100 text-amber-700' : m.status === 'refunded' ? 'bg-stone-200 text-stone-500' : 'bg-green-100 text-green-700'}`}>
+                            ${m.status === 'pending' ? 'bg-amber-100 text-amber-700' : (m.status === 'refunded' || m.status === 'cancelled') ? 'bg-stone-200 text-stone-500' : 'bg-green-100 text-green-700'}`}>
                             {statusLabel}
                           </span>
                         </div>
@@ -569,9 +569,9 @@ export default function BoothDashboard() {
               <>
                 <div className="flex items-center justify-between mb-4 gap-2">
                   <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold
-                    ${order.status === 'pending' ? 'bg-amber-100 text-amber-700' : order.status === 'refunded' ? 'bg-stone-200 text-stone-500' : 'bg-green-100 text-green-700'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${order.status === 'pending' ? 'bg-amber-500' : order.status === 'refunded' ? 'bg-stone-400' : 'bg-green-500'}`} />
-                    {order.status === 'pending' ? '待收款' : order.status === 'refunded' ? '已退款' : '已結帳'}
+                    ${order.status === 'pending' ? 'bg-amber-100 text-amber-700' : (order.status === 'refunded' || order.status === 'cancelled') ? 'bg-stone-200 text-stone-500' : 'bg-green-100 text-green-700'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${order.status === 'pending' ? 'bg-amber-500' : (order.status === 'refunded' || order.status === 'cancelled') ? 'bg-stone-400' : 'bg-green-500'}`} />
+                    {order.status === 'pending' ? '待收款' : order.status === 'refunded' ? '已退款' : order.status === 'cancelled' ? '已取消' : '已結帳'}
                     <span className="font-mono text-xs opacity-70 ml-1">{order.order_no}</span>
                   </div>
                   {order.status === 'pending' && !editMode && items.length > 0 && (
@@ -801,7 +801,12 @@ export default function BoothDashboard() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {order.status === 'refunded' ? (
+                    {order.status === 'cancelled' ? (
+                      <div className="bg-stone-100 border border-stone-300 rounded-2xl p-4">
+                        <p className="font-bold text-stone-700 text-lg">🚫 此訂單已取消</p>
+                        <p className="text-xs text-stone-500 mt-0.5">{order.cancelled_reason || '已取消'}，庫存已補回，請客人重新下單</p>
+                      </div>
+                    ) : order.status === 'refunded' ? (
                       <div className="bg-stone-100 border border-stone-300 rounded-2xl p-4">
                         <p className="font-bold text-stone-700 text-lg">↩️ 此訂單已整筆退款</p>
                         <p className="text-xs text-stone-500 mt-0.5">

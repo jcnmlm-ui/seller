@@ -29,4 +29,5 @@ export const STATUS_CONFIG = {
   shipped:   { label: '已出貨', bg: 'bg-green-100',  text: 'text-green-700',  next: 'delivered',nextLabel: '標記送達' },
   delivered: { label: '已送達', bg: 'bg-teal-100',   text: 'text-teal-700',   next: null,       nextLabel: null },
   refunded:  { label: '已退款', bg: 'bg-stone-200',  text: 'text-stone-500',  next: null,       nextLabel: null },
+  cancelled: { label: '已取消', bg: 'bg-stone-200',  text: 'text-stone-500',  next: null,       nextLabel: null },
 }
