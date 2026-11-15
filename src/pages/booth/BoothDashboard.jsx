@@ -254,6 +254,28 @@ export default function BoothDashboard() {
     if (checked) { setShowMergePanel(true) }
     else { setMergedOrders([]); setMergeWarn('') }
   }
+  // 瀏覽器外掛「郵政商城訂單查詢」查完單號後會送出 topmall-order-result 事件；
+  // 合併面板開著時，自動把單號與金額填進欄位（不會自動按「加入」）
+  useEffect(() => {
+    function onTopmallResult(e) {
+      if (!showMergePanel) return
+      let d
+      try { d = typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail } catch { return }
+      if (!d?.orderNo) return
+      setMergeNo(String(d.orderNo))
+      if (d.ok && Number(d.amount) > 0) {
+        setMergeAmt(String(d.amount))
+        setMergeWarn('')
+        setTimeout(() => document.getElementById('merge-add')?.focus(), 0)   // 按 Enter 即可加入
+      } else {
+        setMergeAmt('')
+        setMergeWarn(`⚠️ ${d.orderNo}：${d.reason || '查無金額'}，未帶入金額`)
+      }
+    }
+    window.addEventListener('topmall-order-result', onTopmallResult)
+    return () => window.removeEventListener('topmall-order-result', onTopmallResult)
+  }, [showMergePanel])
+
   async function addMergedOrder() {
     const no = mergeNo.trim().toUpperCase()
     const amount = Number(mergeAmt)
@@ -1016,7 +1038,7 @@ export default function BoothDashboard() {
                 <input id="merge-amt" className="input w-28 text-sm" type="number" min="1" placeholder="金額"
                   value={mergeAmt} onChange={e => setMergeAmt(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addMergedOrder() } }} />
-                <button type="button" onClick={addMergedOrder} className="btn-primary px-4 text-sm">加入</button>
+                <button type="button" id="merge-add" onClick={addMergedOrder} className="btn-primary px-4 text-sm">加入</button>
               </div>
               {mergeWarn && (
                 <p className="text-xs font-semibold text-amber-800 bg-amber-100 border border-amber-300 rounded-xl px-3 py-2">{mergeWarn}</p>
