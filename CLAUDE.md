@@ -273,7 +273,8 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 - 現場收銀台（CashierPage）維持不扣庫存，與預購分開；Excel 匯入匯出未包含 release 欄位
 - 計算邏輯：`src/lib/release.js`（後台預覽）與 SQL 規則一致
 
-- **數量上限**：顧客頁與結帳頁的 ＋ 按鈕，上限＝min(實際庫存, 逐日釋放今日可買)；庫存 -1 不限；到上限即變灰（結帳頁另顯示「限量，最多 N 件」，超過會擋送出）。伺服器 `decrement_stock` 仍是最後防線
+- **數量上限**：顧客頁與結帳頁的 ＋ 按鈕，上限＝min(實際庫存, 逐日釋放今日可買, 每單限購)；庫存 -1 不限；到上限即變灰，只顯示「庫存已達上限」（不顯示剩幾件，避免讓人推算攤位帶多少貨）或「每單限購 N 件」；超過會擋送出。伺服器 `decrement_stock` 仍是最後防線
+- **每單限購**（migration 19）：後台「商品管理 → 逐日釋放設定」可開關並輸入數字（`release_schedule.per_order_limit_enabled / per_order_limit`），只限制有開逐日釋放的商品、一般商品不受影響；`decrement_stock` 超過會回「每單限購 N 件」；前台讀 `release_schedule` 顯示
 
 ### 待收款訂單管理（migration 18，`/admin/pending`）
 - 預購下單即扣庫存，未結帳的訂單會佔庫存；此頁列出待收款／已取消訂單，可用訂單號、姓名、手機搜尋，依下單日（今天／昨天）與商品篩選，單筆或勾選多筆取消
@@ -311,6 +312,7 @@ repo 的 `supabase/` 資料夾只有前 3 個（初始架構）。
 | 16 | `16_reduce_pending_order.sql`：orders.edit_log、reduce_pending_order() |
 | 17 | `17_daily_release.sql`：逐日釋放庫存（release_schedule 表、products.release_enabled/release_total、release_available()、product_release_availability()、改寫 decrement_stock） |
 | 18 | `18_cancel_pending.sql`：cancelled 狀態與欄位、cancel_order_core()、cancel_pending_orders()、pending_cutoff()、expire_pending_orders()、decrement_stock 加入過期清理 |
+| 19 | `19_per_order_limit.sql`：release_schedule.per_order_limit_enabled/per_order_limit、release_per_order_limit()、decrement_stock 加入每單限購檢查 |
 
 ---
 

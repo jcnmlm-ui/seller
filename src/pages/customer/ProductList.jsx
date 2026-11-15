@@ -77,9 +77,12 @@ function ProductCard({ product, cartItem, onAdd, onUpdate }) {
   // _avail：逐日釋放商品「今天還能買幾件」（null＝不受逐日釋放限制）
   const limited = product._avail != null
   const todaySoldOut = limited && product._avail <= 0
-  // 可買上限＝min(實際庫存, 逐日釋放今日可買)；庫存 -1＝不限
-  const cap = Math.min(product.stock === -1 ? Infinity : product.stock, limited ? product._avail : Infinity)
-  const atLimit = (cartItem?.quantity ?? 0) >= cap
+  // 可買上限＝min(實際庫存, 逐日釋放今日可買)；庫存 -1＝不限。另有「每單限購」（只限逐日釋放商品，後台可開關）
+  const stockCap = Math.min(product.stock === -1 ? Infinity : product.stock, limited ? product._avail : Infinity)
+  const orderCap = product._perOrder ?? Infinity
+  const qtyNow = cartItem?.quantity ?? 0
+  const atStock = qtyNow >= stockCap
+  const atLimit = atStock || qtyNow >= orderCap
   const stockLabel = limited
     ? (todaySoldOut ? null : `今日剩 ${product._avail} 件`)
     : (product.stock !== -1 && product.stock <= 5 ? `剩 ${product.stock} 件` : null)
@@ -138,6 +141,9 @@ function ProductCard({ product, cartItem, onAdd, onUpdate }) {
               onClick={() => onUpdate(cartItem.quantity + 1)}>+</button>
           </div>
         )}
+        {cartItem && atLimit && (
+          <p className="text-xs text-amber-600 text-center mt-1">{atStock ? '庫存已達上限' : `每單限購 ${orderCap} 件`}</p>
+        )}
       </div>
     </div>
   )
@@ -194,7 +200,15 @@ export default function ProductList() {
     ])
     if (error) return
     const map = new Map((avail?.data ?? []).map(r => [r.product_id, r.available]))
-    setProducts((data ?? []).map(p => ({ ...p, _avail: map.has(p.id) ? map.get(p.id) : null })))
+    // 每單限購（只限逐日釋放商品）；讀不到設定或未啟用＝不限
+    const { data: sch } = await supabase.from('release_schedule')
+      .select('per_order_limit_enabled, per_order_limit').eq('id', 'main').maybeSingle()
+    const perOrder = sch?.per_order_limit_enabled ? sch.per_order_limit : null
+    setProducts((data ?? []).map(p => ({
+      ...p,
+      _avail: map.has(p.id) ? map.get(p.id) : null,
+      _perOrder: p.release_enabled ? perOrder : null,
+    })))
   }
 
   function acceptPrivacy() {
@@ -221,7 +235,7 @@ export default function ProductList() {
       .map(p => {
         const invoiceValue = (Number(p.price) || 0) - (Number(p.stamp_amount) || 0)
         const inCartQty = items.find(i => i.id === p.id)?.quantity || 0
-        const cap = Math.min(p.stock === -1 ? Infinity : p.stock, p._avail ?? Infinity)
+        const cap = Math.min(p.stock === -1 ? Infinity : p.stock, p._avail ?? Infinity, p._perOrder ?? Infinity)
         const remainingStock = Math.max(0, cap - inCartQty)
         return { product: p, invoiceValue, remainingStock }
       })

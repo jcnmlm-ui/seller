@@ -156,6 +156,8 @@ export default function ProductManage() {
   const [schedStart, setSchedStart] = useState('')
   const [schedWeights, setSchedWeights] = useState([])   // 字串陣列（輸入框用）
   const [schedSaving, setSchedSaving] = useState(false)
+  const [limitOn, setLimitOn] = useState(false)          // 每單限購（只限逐日釋放商品）
+  const [limitNum, setLimitNum] = useState('1')
   const fileInputRef = useRef(null)
 
   // ── 匯出／匯入／清空 ──────────────────────────────────
@@ -189,7 +191,7 @@ export default function ProductManage() {
     setProducts(data ?? [])
     const { data: sch } = await supabase
       .from('release_schedule').select('*').eq('id', 'main').maybeSingle()
-    setSchedule(sch ? { start_date: sch.start_date, weights: sch.weights } : null)
+    setSchedule(sch ? { start_date: sch.start_date, weights: sch.weights, limit_on: !!sch.per_order_limit_enabled, limit_num: sch.per_order_limit ?? 1 } : null)
   }
 
   // 今日開放數量（與資料庫規則一致；僅供顯示，實際以伺服器為準）
@@ -205,6 +207,8 @@ export default function ProductManage() {
   function openSchedule() {
     setSchedStart(schedule?.start_date ?? taipeiToday())
     setSchedWeights((schedule?.weights ?? [100]).map(String))
+    setLimitOn(!!schedule?.limit_on)
+    setLimitNum(String(schedule?.limit_num ?? 1))
     setShowSchedule(true)
   }
   function setDays(n) {
@@ -222,11 +226,14 @@ export default function ProductManage() {
     const nums = schedWeights.map(w => Number(w) || 0)
     if (!schedStart) { toast('請選擇活動開始日', 'error'); return }
     if (!weightsValid(nums)) { toast(`每日權重合計必須等於 100%（目前 ${weightsSum(nums)}%）`, 'error'); return }
+    const lim = parseInt(limitNum)
+    if (limitOn && !(lim >= 1)) { toast('每單限購數量請輸入 1 以上的整數', 'error'); return }
     setSchedSaving(true)
     const { error } = await supabase.from('release_schedule')
-      .upsert({ id: 'main', start_date: schedStart, weights: nums })
+      .upsert({ id: 'main', start_date: schedStart, weights: nums,
+                per_order_limit_enabled: limitOn, per_order_limit: lim >= 1 ? lim : 1 })
     setSchedSaving(false)
-    if (error) { toast('儲存失敗：' + error.message + '（請確認已執行 17_daily_release.sql）', 'error'); return }
+    if (error) { toast('儲存失敗：' + error.message + '（請確認已執行 17、19 號 SQL）', 'error'); return }
     toast('已儲存逐日釋放設定', 'success')
     setShowSchedule(false)
     load()
@@ -596,7 +603,7 @@ export default function ProductManage() {
             <p className="font-bold text-amber-800">📅 逐日釋放庫存（全商品共用）</p>
             <p className="text-xs text-amber-700 mt-0.5">
               {schedule
-                ? `${schedule.start_date} 起，共 ${schedule.weights.length} 天：${schedule.weights.join('% / ')}%　・今天是第 ${taipeiDayIndex(schedule.start_date, schedule.weights.length)} 天`
+                ? `${schedule.start_date} 起，共 ${schedule.weights.length} 天：${schedule.weights.join('% / ')}%　・今天是第 ${taipeiDayIndex(schedule.start_date, schedule.weights.length)} 天${schedule.limit_on ? `　・每單限購 ${schedule.limit_num} 件` : ''}`
                 : '尚未設定。設定後，在各商品開啟「逐日釋放」即可分天開放購買'}
             </p>
           </div>
@@ -694,6 +701,20 @@ export default function ProductManage() {
                   <p className={`text-sm font-bold mt-2 ${ok ? 'text-green-600' : 'text-red-500'}`}>
                     合計 {sum}% {ok ? '✓' : '（必須等於 100%）'}
                   </p>
+                </div>
+
+                <div className="border border-stone-200 rounded-xl p-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" className="w-4 h-4" checked={limitOn} onChange={e => setLimitOn(e.target.checked)} />
+                    <span className="font-bold text-sm text-stone-800">每單限購（只限制有開「逐日釋放」的商品）</span>
+                  </label>
+                  <div className={`flex items-center gap-2 mt-2 ${limitOn ? '' : 'opacity-40'}`}>
+                    <span className="text-sm text-stone-600">每張訂單同一商品最多</span>
+                    <input type="number" min="1" step="1" disabled={!limitOn} className="input !w-20 text-sm py-1.5 text-center"
+                      value={limitNum} onChange={e => setLimitNum(e.target.value)} />
+                    <span className="text-sm text-stone-600">件</span>
+                  </div>
+                  <p className="text-xs text-stone-400 mt-1.5">避免一個人一次買走全部庫存；可隨時開關或改數字，儲存後立即生效。</p>
                 </div>
 
                 {ok && enabledProducts.length > 0 && (

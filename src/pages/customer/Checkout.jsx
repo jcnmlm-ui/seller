@@ -22,26 +22,37 @@ export default function Checkout() {
   const enabledPayMethods = useEnabledPaymentMethods()
   const { items, dispatch, total, stampTotal, invoiceTotal } = useCart()
   const navigate = useNavigate()
-  // 可買上限＝min(實際庫存, 逐日釋放今日可買)；沒有資料／庫存 -1＝不限制。＋按鈕據此擋住，避免到送出才被拒絕
-  const [availMap, setAvailMap] = useState({})
+  // 可買上限：stockMap＝min(實際庫存, 逐日釋放今日可買)；limitMap＝每單限購（只限逐日釋放商品）。
+  // ＋按鈕據此擋住，避免到送出才被拒絕；沒有資料／庫存 -1＝不限制
+  const [stockMap, setStockMap] = useState({})
+  const [limitMap, setLimitMap] = useState({})
   useEffect(() => {
     let alive = true
     const load = async () => {
       try {
-        const [rel, prod] = await Promise.all([
+        const [rel, prod, sch] = await Promise.all([
           supabase.rpc('product_release_availability'),
-          supabase.from('products').select('id, stock'),
+          supabase.from('products').select('id, stock, release_enabled'),
+          supabase.from('release_schedule').select('per_order_limit_enabled, per_order_limit').eq('id', 'main').maybeSingle(),
         ])
-        const m = {}
-        ;(prod.data ?? []).forEach(r => { if (r.stock !== -1) m[r.id] = Math.max(0, r.stock) })
-        ;(rel.data ?? []).forEach(r => { m[r.product_id] = Math.min(m[r.product_id] ?? Infinity, r.available) })
-        if (alive) setAvailMap(m)
+        const sm = {}, lm = {}
+        const perOrder = sch.data?.per_order_limit_enabled ? sch.data.per_order_limit : null
+        ;(prod.data ?? []).forEach(r => {
+          if (r.stock !== -1) sm[r.id] = Math.max(0, r.stock)
+          if (perOrder != null && r.release_enabled) lm[r.id] = perOrder
+        })
+        ;(rel.data ?? []).forEach(r => { sm[r.product_id] = Math.min(sm[r.product_id] ?? Infinity, r.available) })
+        if (alive) { setStockMap(sm); setLimitMap(lm) }
       } catch {}
     }
     load()
     const t = setInterval(load, 60000)
     return () => { alive = false; clearInterval(t) }
   }, [])
+  const capOf = id => Math.min(stockMap[id] ?? Infinity, limitMap[id] ?? Infinity)
+  const overCap = i => i.quantity > capOf(i.id)
+  const atCap   = i => i.quantity >= capOf(i.id)
+
   const [form, setForm] = useState({
     name: '', mobile: '', landline: '',
     city: '', district: '', detail: '', postal_suffix: '', note: '',
@@ -163,8 +174,8 @@ export default function Checkout() {
   }
 
   async function handleSubmit() {
-    if (items.some(i => availMap[i.id] != null && i.quantity > availMap[i.id])) {
-      alert('部分商品超過可購買數量（庫存／今日限量），請先依紅字提示減少數量')
+    if (items.some(overCap)) {
+      alert('部分商品數量超過上限，請先依紅字提示減少數量')
       return
     }
     if (!validate()) return
@@ -263,11 +274,11 @@ export default function Checkout() {
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-stone-900 truncate">{item.name}</p>
                   <p className="text-xs text-stone-400">NT${item.price.toLocaleString()} / 件</p>
-                  {availMap[item.id] != null && (
-                    <p className={`text-xs ${item.quantity > availMap[item.id] ? 'text-red-500 font-semibold' : 'text-amber-600'}`}>
-                      {item.quantity > availMap[item.id]
-                        ? `最多只能買 ${Math.max(0, availMap[item.id])} 件，請減少數量`
-                        : `限量，最多 ${availMap[item.id]} 件`}
+                  {atCap(item) && (
+                    <p className={`text-xs ${overCap(item) ? 'text-red-500 font-semibold' : 'text-amber-600'}`}>
+                      {overCap(item)
+                        ? '數量超過上限，請減少數量'
+                        : (item.quantity >= (stockMap[item.id] ?? Infinity) ? '庫存已達上限' : `每單限購 ${limitMap[item.id]} 件`)}
                     </p>
                   )}
                 </div>
@@ -293,7 +304,7 @@ export default function Checkout() {
                       {item.quantity}
                     </span>
                     <button
-                      disabled={availMap[item.id] != null && item.quantity >= availMap[item.id]}
+                      disabled={atCap(item)}
                       className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-600 hover:bg-white active:scale-90 transition-all font-bold disabled:opacity-30 disabled:cursor-not-allowed"
                       onClick={() => dispatch({ type: 'UPDATE_QTY', id: item.id, qty: item.quantity + 1 })}
                     >+</button>
