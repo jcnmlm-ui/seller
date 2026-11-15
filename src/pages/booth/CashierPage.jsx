@@ -6,6 +6,8 @@ import { useAuth } from '../../context/AuthContext'
 import { STORE, PAYMENT_LABELS } from '../../config/store'
 import { useEnabledPaymentMethods } from '../../hooks/useEnabledPaymentMethods'
 import { toast } from '../../components/StatusBadge'
+import { computeGifts, giftText } from '../../lib/gifts'
+import { useMergeChannel, MergeChannelRow, MergeChannelModal, GiftCard } from '../../components/MergeChannel'
 
 export default function CashierPage() {
   const navigate = useNavigate()
@@ -16,13 +18,29 @@ export default function CashierPage() {
   const [confirming, setConfirming] = useState(false)
   const [todayStats, setTodayStats] = useState({ count: 0, total: 0 })
   const [lastSale, setLastSale]     = useState(null)  // 上一筆成功紀錄
+  const [tiers, setTiers]       = useState([])    // 滿額活動門檻
+  const merge = useMergeChannel()                 // 合併其他通路訂單（共用元件）
   const inputRef = useRef(null)
   const { signOut } = useAuth()
 
   useEffect(() => {
     inputRef.current?.focus()
     loadTodayStats()
+    loadTiers()
   }, [])
+
+  // 購物車清空（含逐項刪光）就把合併的其他通路訂單一併清掉，避免帶到下一位客人
+  useEffect(() => {
+    if (cartItems.length === 0) merge.reset([])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartItems.length === 0])
+
+  // 滿額贈設定：開頁時讀一次，之後每完成一筆再重讀，後台改設定不用重新整理
+  async function loadTiers() {
+    const { data, error } = await supabase.from('promotion_tiers').select('*').eq('is_active', true)
+      .order('threshold', { ascending: true })
+    if (!error) setTiers(data ?? [])
+  }
 
   // ── 快速鍵：F3 切換到攤位收款，方便全螢幕時免用滑鼠切換 ──
   useEffect(() => {
@@ -100,10 +118,16 @@ export default function CashierPage() {
     setCartItems([])
     setPayMethod('cash')
     setLastSale(null)
+    merge.reset([])
     inputRef.current?.focus()
   }
 
   const total = cartItems.reduce((s, i) => s + i.price * i.qty, 0)
+  // 滿額贈品：本次現場購買的發票金額（扣郵票）＋ 合併的其他通路金額
+  const stampSum   = cartItems.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.qty, 0)
+  const invoiceAmt = total - stampSum
+  const giftBase   = invoiceAmt + merge.sum
+  const giftList   = computeGifts(tiers, giftBase).gifts
 
   // ── 確認收款 ─────────────────────────────────────────────
   async function handleConfirm() {
@@ -112,21 +136,29 @@ export default function CashierPage() {
 
     try {
       // 建立已付款訂單（source = booth_cashier）
-      const { data: order, error: orderErr } = await supabase
-        .from('orders')
-        .insert({
-          receiver_name:    '現場客戶',
-          receiver_phone:   '—',
-          receiver_address: '現場取貨',
-          total_amount:     total,
-          status:           'delivered',   // 現場交付，直接送達
-          payment_method:   payMethod,
-          paid_at:          new Date().toISOString(),
-          shipped_at:       new Date().toISOString(),
-          source:           'booth_cashier',
-        })
-        .select('id, order_no')
-        .single()
+      const baseRow = {
+        receiver_name:    '現場客戶',
+        receiver_phone:   '—',
+        receiver_address: '現場取貨',
+        total_amount:     total,
+        status:           'delivered',   // 現場交付，直接送達
+        payment_method:   payMethod,
+        paid_at:          new Date().toISOString(),
+        shipped_at:       new Date().toISOString(),
+        source:           'booth_cashier',
+      }
+      const mergeRow = {
+        merged_orders: merge.orders.map(m => ({ order_no: m.order_no, amount: m.amount })),
+        promo_gift:    giftList.length ? giftText(giftList) : null,
+      }
+      let { data: order, error: orderErr } = await supabase
+        .from('orders').insert({ ...baseRow, ...mergeRow }).select('id, order_no').single()
+      // 保險：還沒執行 15 號 SQL（資料庫沒有新欄位）時，收款仍照常完成，只是不記錄合併資訊
+      if (orderErr && /merged_orders|promo_gift/.test(orderErr.message)) {
+        if (merge.orders.length > 0) toast('資料庫尚未執行 15 號 SQL，合併訂單資訊未被記錄', 'error', 5000)
+        ;({ data: order, error: orderErr } = await supabase
+          .from('orders').insert(baseRow).select('id, order_no').single())
+      }
 
       if (orderErr) throw new Error(orderErr.message)
 
@@ -151,11 +183,15 @@ export default function CashierPage() {
         total,
         method: payMethod,
         items: [...cartItems],
+        gift: giftList.length ? giftText(giftList) : '',
+        merged: merge.orders.length,
       })
       toast(`✓ 收款完成！NT$${total.toLocaleString()}`, 'success', 4000)
       setCartItems([])
       setPayMethod('cash')
+      merge.reset([])
       loadTodayStats()
+      loadTiers()
       inputRef.current?.focus()
 
     } catch (err) {
@@ -338,6 +374,11 @@ export default function CashierPage() {
                       <p key={i.id}>{i.name} ×{i.qty}</p>
                     ))}
                   </div>
+                  {lastSale.gift && (
+                    <p className="mt-3 text-sm font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                      🎁 應送：{lastSale.gift}{lastSale.merged > 0 ? `（含其他通路 ${lastSale.merged} 筆）` : ''}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="text-stone-300 text-center">
@@ -368,6 +409,10 @@ export default function CashierPage() {
                   ))}
                 </div>
               </div>
+
+              {/* 滿額贈品提示（現場購買＋其他通路合併）*/}
+              <GiftCard tiers={tiers} invoice={invoiceAmt} mergedSum={merge.sum} />
+              <MergeChannelRow merge={merge} />
 
               {/* 選了非現金付款、但購物車含郵票商品時，明顯提醒收款人員 */}
               {(() => {
@@ -400,7 +445,7 @@ export default function CashierPage() {
                     處理中…
                   </span>
                 ) : (
-                  <span className="flex items-center justify-center gap-3">
+                  <span className="flex items-center justify-start gap-3 pl-6">
                     確認收款 NT${total.toLocaleString()}
                     <kbd className="bg-white/20 text-white/90 text-sm px-2 py-1 rounded-lg font-mono">
                       ↵ Enter
@@ -426,6 +471,9 @@ export default function CashierPage() {
           )}
         </div>
       </div>
+
+      {/* 合併其他通路訂單面板（共用元件）*/}
+      <MergeChannelModal merge={merge} giftBase={giftBase} giftList={giftList} />
     </div>
   )
 }

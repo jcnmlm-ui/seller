@@ -237,7 +237,9 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 - **收款前調整數量**：待收款訂單可按「調整數量」只減不增（0 = 移除），儲存後回補庫存並寫入 `edit_log`；至少保留一項
 - **滿額贈品提示**：依「發票金額（扣郵票）＋合併的其他通路金額」即時算出應送贈品與數量；計算邏輯在 `src/lib/gifts.js`
 - **合併其他通路訂單**：勾選後彈出面板輸入單號與金額（可多筆），同一單號已被別筆訂單合併會警示；收款時存入 `merged_orders`、`promo_gift`
-- **郵政商城查詢外掛連動**：jcn 另有自製 Tampermonkey 外掛 `topmall_orders.user.js`（v1.3.0 起），在 #/booth 右下角的查詢面板查完郵政商城單號後，會送出 `topmall-order-result` 事件（detail 為 JSON 字串 `{orderNo, ok, amount, reason}`）；收款頁在「合併其他通路訂單」面板開著時接收，自動填入單號與金額（不會自動按加入，焦點停在「加入」按鈕，按 Enter 即可加入）。只有「已付款且訂單成立」才帶入金額（含紅利金額）；取消／逾期／未付款只帶單號並顯示原因。外掛不在 repo 內，改事件格式時兩邊都要改
+- **合併其他通路共用模組** `src/components/MergeChannel.jsx`：`useMergeChannel({orderId})` hook ＋ `MergeChannelRow`（勾選列）、`MergeChannelModal`（輸入面板）、`GiftCard`（滿額贈卡片）。BoothDashboard（預購取貨）與 CashierPage（現場收銀台）共用；收銀台結帳時同樣把 `merged_orders`、`promo_gift` 寫進 booth_cashier 訂單（缺 15 號 SQL 欄位時自動退回不含這兩欄）。收銀台購物車清空時自動重設合併資料，避免帶到下一位客人
+- **郵政商城查詢外掛連動**：jcn 另有自製 Tampermonkey 外掛 `topmall_orders.user.js`（v1.4.0），在 #/booth、#/cashier 右下角的查詢面板查完單號後，送出 `topmall-order-result` 事件（detail 為 JSON 字串 `{orderNo, ok, amount, reason}`）；收款頁只在「合併其他通路訂單」面板開著時接收。已付款且訂單成立（含紅利金額）→ **直接加入並自動關閉面板**（重複單號則維持開啟並警示）；取消／逾期／未付款只帶單號並顯示原因。反向事件 `seller-merge-panel`（detail `{open}`）由收款頁在面板開／關時送出，外掛據此展開／收折查詢面板（收款頁預設收折，只剩標題列）。查詢輸入框提示文字 18px。外掛不在 repo 內，改事件格式時兩邊都要改
+- 「確認收款」紅色按鈕文字靠左（`justify-start pl-6`），避免被彈出的查詢面板遮住
 - **退貨／退款**（已收款）：左側用 ＋／－ 選退幾件或「整筆全選」，右側顯示應退金額與收銀步驟（現金退現金；刷卡/電子支付＝整筆刷退後重刷剩餘金額，郵票金額退現金）；退款後滿額贈品減少會提示追回；任何登入人員皆可操作，操作人員 email 記入 `order_refunds`
 - 右上角「今日」統計以**台灣時間 00:00** 為起點，排除待結帳與整筆退款訂單，另顯示「已扣退款」
 
