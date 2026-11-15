@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Search, MapPin, X, Loader2, Package } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
@@ -22,6 +22,17 @@ export default function Checkout() {
   const enabledPayMethods = useEnabledPaymentMethods()
   const { items, dispatch, total, stampTotal, invoiceTotal } = useCart()
   const navigate = useNavigate()
+  // 逐日釋放：今日各商品還能買幾件（沒有資料＝不受限制）；＋按鈕據此擋住，避免到送出才被拒絕
+  const [availMap, setAvailMap] = useState({})
+  useEffect(() => {
+    let alive = true
+    const load = () => supabase.rpc('product_release_availability').then(({ data }) => {
+      if (alive && data) setAvailMap(Object.fromEntries(data.map(r => [r.product_id, r.available])))
+    }, () => {})
+    load()
+    const t = setInterval(load, 60000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
   const [form, setForm] = useState({
     name: '', mobile: '', landline: '',
     city: '', district: '', detail: '', postal_suffix: '', note: '',
@@ -143,6 +154,10 @@ export default function Checkout() {
   }
 
   async function handleSubmit() {
+    if (items.some(i => availMap[i.id] != null && i.quantity > availMap[i.id])) {
+      alert('部分商品超過今日可購買數量，請先依紅字提示減少數量')
+      return
+    }
     if (!validate()) return
     setLoading(true)
     try {
@@ -239,6 +254,13 @@ export default function Checkout() {
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-stone-900 truncate">{item.name}</p>
                   <p className="text-xs text-stone-400">NT${item.price.toLocaleString()} / 件</p>
+                  {availMap[item.id] != null && (
+                    <p className={`text-xs ${item.quantity > availMap[item.id] ? 'text-red-500 font-semibold' : 'text-amber-600'}`}>
+                      {item.quantity > availMap[item.id]
+                        ? `今日最多 ${Math.max(0, availMap[item.id])} 件，請減少數量`
+                        : `今日限量，最多 ${availMap[item.id]} 件`}
+                    </p>
+                  )}
                 </div>
 
                 {/* 小計 + 數量調整 */}
@@ -262,7 +284,8 @@ export default function Checkout() {
                       {item.quantity}
                     </span>
                     <button
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-600 hover:bg-white active:scale-90 transition-all font-bold"
+                      disabled={availMap[item.id] != null && item.quantity >= availMap[item.id]}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-600 hover:bg-white active:scale-90 transition-all font-bold disabled:opacity-30 disabled:cursor-not-allowed"
                       onClick={() => dispatch({ type: 'UPDATE_QTY', id: item.id, qty: item.quantity + 1 })}
                     >+</button>
                   </div>
