@@ -77,7 +77,9 @@ function ProductCard({ product, cartItem, onAdd, onUpdate }) {
   // _avail：逐日釋放商品「今天還能買幾件」（null＝不受逐日釋放限制）
   const limited = product._avail != null
   const todaySoldOut = limited && product._avail <= 0
-  const atLimit = limited && (cartItem?.quantity ?? 0) >= product._avail
+  // 可買上限＝min(實際庫存, 逐日釋放今日可買)；庫存 -1＝不限
+  const cap = Math.min(product.stock === -1 ? Infinity : product.stock, limited ? product._avail : Infinity)
+  const atLimit = (cartItem?.quantity ?? 0) >= cap
   const stockLabel = limited
     ? (todaySoldOut ? null : `今日剩 ${product._avail} 件`)
     : (product.stock !== -1 && product.stock <= 5 ? `剩 ${product.stock} 件` : null)

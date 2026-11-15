@@ -22,13 +22,22 @@ export default function Checkout() {
   const enabledPayMethods = useEnabledPaymentMethods()
   const { items, dispatch, total, stampTotal, invoiceTotal } = useCart()
   const navigate = useNavigate()
-  // 逐日釋放：今日各商品還能買幾件（沒有資料＝不受限制）；＋按鈕據此擋住，避免到送出才被拒絕
+  // 可買上限＝min(實際庫存, 逐日釋放今日可買)；沒有資料／庫存 -1＝不限制。＋按鈕據此擋住，避免到送出才被拒絕
   const [availMap, setAvailMap] = useState({})
   useEffect(() => {
     let alive = true
-    const load = () => supabase.rpc('product_release_availability').then(({ data }) => {
-      if (alive && data) setAvailMap(Object.fromEntries(data.map(r => [r.product_id, r.available])))
-    }, () => {})
+    const load = async () => {
+      try {
+        const [rel, prod] = await Promise.all([
+          supabase.rpc('product_release_availability'),
+          supabase.from('products').select('id, stock'),
+        ])
+        const m = {}
+        ;(prod.data ?? []).forEach(r => { if (r.stock !== -1) m[r.id] = Math.max(0, r.stock) })
+        ;(rel.data ?? []).forEach(r => { m[r.product_id] = Math.min(m[r.product_id] ?? Infinity, r.available) })
+        if (alive) setAvailMap(m)
+      } catch {}
+    }
     load()
     const t = setInterval(load, 60000)
     return () => { alive = false; clearInterval(t) }
@@ -155,7 +164,7 @@ export default function Checkout() {
 
   async function handleSubmit() {
     if (items.some(i => availMap[i.id] != null && i.quantity > availMap[i.id])) {
-      alert('部分商品超過今日可購買數量，請先依紅字提示減少數量')
+      alert('部分商品超過可購買數量（庫存／今日限量），請先依紅字提示減少數量')
       return
     }
     if (!validate()) return
@@ -257,8 +266,8 @@ export default function Checkout() {
                   {availMap[item.id] != null && (
                     <p className={`text-xs ${item.quantity > availMap[item.id] ? 'text-red-500 font-semibold' : 'text-amber-600'}`}>
                       {item.quantity > availMap[item.id]
-                        ? `今日最多 ${Math.max(0, availMap[item.id])} 件，請減少數量`
-                        : `今日限量，最多 ${availMap[item.id]} 件`}
+                        ? `最多只能買 ${Math.max(0, availMap[item.id])} 件，請減少數量`
+                        : `限量，最多 ${availMap[item.id]} 件`}
                     </p>
                   )}
                 </div>
