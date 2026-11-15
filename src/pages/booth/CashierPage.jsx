@@ -459,12 +459,12 @@ export default function CashierPage() {
                 const stampTotal = cartItems.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.qty, 0)
                 const invoiceAmount = total - stampTotal
                 return stampTotal > 0 ? (
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center text-xs text-blue-700">
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-left text-xs text-blue-700">
                     <p>實收 <strong>NT${total.toLocaleString()}</strong> ／ 發票 <strong>NT${invoiceAmount.toLocaleString()}</strong></p>
                     <p className="text-blue-400 mt-0.5">含郵票 NT${stampTotal.toLocaleString()}</p>
                   </div>
                 ) : (
-                  <p className="text-center text-xs text-stone-400">此筆為現場銷售，將直接記錄為「已送達」</p>
+                  <p className="text-left text-xs text-stone-400">此筆為現場銷售，將直接記錄為「已送達」</p>
                 )
               })()}
             </div>
