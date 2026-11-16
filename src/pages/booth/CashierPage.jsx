@@ -180,7 +180,7 @@ export default function CashierPage() {
       }
       const { data: order, error } = await insertOrderCompat(row)
       if (error) throw new Error(error.message)
-      merge.notifyPaid(order.id, merge.orders)   // 通知外掛把合併的商城單改成訂單處理中
+      try { merge.notifyPaid?.(order.id, merge.orders) } catch {}   // 通知外掛把合併的商城單改成訂單處理中
       setLastSale({ order_no: order.order_no, total: 0, method: null, items: [], redeem: true,
         gift: giftText(giftList), merged: merge.orders.length })
       toast('✓ 已記錄領取滿額贈', 'success', 3000)
@@ -245,7 +245,7 @@ export default function CashierPage() {
         merged: merge.orders.length,
       })
       toast(`✓ 收款完成！NT$${total.toLocaleString()}`, 'success', 4000)
-      merge.notifyPaid(order.id, merge.orders)   // 通知外掛把合併的商城單改成訂單處理中
+      try { merge.notifyPaid?.(order.id, merge.orders) } catch {}   // 通知外掛把合併的商城單改成訂單處理中
       setCartItems([])
       setPayMethod('cash')
       merge.reset([])

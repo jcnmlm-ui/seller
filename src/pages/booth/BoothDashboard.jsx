@@ -203,7 +203,7 @@ export default function BoothDashboard() {
     } else {
       toast(`✓ 已確認收款（${PAYMENT_LABELS[payMethod]}）`, 'success')
       setOrder(prev => ({ ...prev, status: 'paid', payment_method: payMethod }))
-      merge.notifyPaid(order.id, mergedOrders)   // 通知外掛把合併的商城單改成訂單處理中
+      try { merge.notifyPaid?.(order.id, mergedOrders) } catch {}   // 通知外掛把合併的商城單改成訂單處理中
       loadTodayStats()
 
       // ── 廣播給所有開著後台的人 ──────────────────────────

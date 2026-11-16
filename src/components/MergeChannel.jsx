@@ -41,55 +41,157 @@ export function useMergeChannel({ orderId = null } = {}) {
     else { setOrders([]); setWarn('') }
   }
 
-  // auto = 外掛查詢後自動加入：成功就直接關閉面板（等同按「完成」）；有重複警示時留著讓人看
+  const fmtTime = t => {
+    if (!t) return ''
+    const d = new Date(t)
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+
+  // auto = 外掛查詢後自動加入：已被別筆收款單合併過（已兌換）的單號不會自動加入，改為警示；
+  // 回傳 { ok, msg }。手動輸入時重複仍可加入（由人判斷），但會標警示。
   const addOrder = useCallback(async (noRaw, amount, auto = false) => {
     const orderNo = String(noRaw ?? '').trim().toUpperCase()
     const amountN = Number(amount)
-    if (!orderNo) { setWarn('請輸入其他通路的訂單編號'); return }
-    if (!amountN || amountN <= 0) { setWarn('請輸入該筆訂單的金額（發票金額）'); return }
-    if (ordersRef.current.some(m => m.order_no === orderNo)) { setWarn('這個單號已經加入了'); return }
-    // 檢查這張單是否已被別筆訂單合併過（避免同一張單重複領贈品）
-    let dupOf = null
+    const fail = msg => { if (!auto) setWarn(msg); return { ok: false, msg } }
+    if (!orderNo) return fail('請輸入其他通路的訂單編號')
+    if (!amountN || amountN <= 0) return fail('請輸入該筆訂單的金額（發票金額）')
+    if (ordersRef.current.some(m => m.order_no === orderNo)) return fail(auto ? `${orderNo}：已經加入了` : '這個單號已經加入了')
+    // 檢查這張單是否已被別筆（有效的）收款單合併過，避免同一張單重複換贈品；已取消／整筆退款的收款單不算
+    let dup = null
     try {
-      let q = supabase.from('orders').select('order_no').contains('merged_orders', [{ order_no: orderNo }])
+      let q = supabase.from('orders').select('order_no, paid_at, created_at')
+        .contains('merged_orders', JSON.stringify([{ order_no: orderNo }]))
+        .not('status', 'in', '(cancelled,refunded)')
       if (orderIdRef.current) q = q.neq('id', orderIdRef.current)
       const { data } = await q.limit(1)
-      if (data?.length) dupOf = data[0].order_no
+      if (data?.length) dup = data[0]
     } catch {}
-    setOrders(prev => [...prev, { order_no: orderNo, amount: amountN, dupOf }])
+    const dupText = dup ? `${dup.order_no}（${fmtTime(dup.paid_at || dup.created_at)}）` : ''
+    if (dup && auto) return { ok: false, msg: `${orderNo}：已在 ${dupText} 兌換過，未加入` }
+    setOrders(prev => [...prev, { order_no: orderNo, amount: amountN, dupOf: dup?.order_no || null }])
     setNo(''); setAmt('')
-    if (dupOf) { setWarn(`⚠️ 此單號已在 ${dupOf} 合併計算過，請確認是否重複領取`); return }
+    if (dup) { setWarn(`⚠️ 此單號已在 ${dupText} 合併計算過，請確認是否重複領取`); return { ok: true, dup: true } }
     setWarn('')
-    if (auto) {
-      toast(`✓ 已加入其他通路 ${orderNo}　NT$${amountN.toLocaleString()}`, 'success', 2500)
-      setShowPanel(false)
-    }
+    return { ok: true }
   }, [setOrders])
 
   function remove(orderNo) { setOrders(prev => prev.filter(m => m.order_no !== orderNo)) }
 
   function close() {
+    clearTimeout(closeTimerRef.current)
     setShowPanel(false); setWarn('')
     if (ordersRef.current.length === 0) setEnabled(false)   // 沒輸入任何單就關掉 → 取消勾選
   }
 
-  // 瀏覽器外掛查完郵政商城單號後送出 topmall-order-result：面板開著才處理，成功就直接加入
+  // ── 接收外掛「郵政商城訂單查詢」──────────────────────────────
+  //  topmall-batch：一批查詢的開始／結束（整批查完才關閉面板，避免多筆時漏單）
+  //  topmall-order-result：每一筆的查詢結果。只有「已付款且未出貨／訂單處理中」才會自動加入；
+  //  取消、逾期、未付款、已出貨、已送達、或已兌換過的單號都不加入，並在面板列出原因
+  const batchRef = useRef({ active: false, ended: false, pending: 0, added: 0, issues: [] })
+  const closeTimerRef = useRef(null)
+
+  const finishBatch = useCallback(() => {
+    const b = batchRef.current
+    if (!b.active || !b.ended || b.pending > 0) return
+    batchRef.current = { active: false, ended: false, pending: 0, added: 0, issues: [] }
+    if (b.issues.length) {
+      setWarn(b.issues.join('\n'))
+      if (b.added > 0) toast(`✓ 已加入 ${b.added} 筆，另有 ${b.issues.length} 筆未加入（請看面板）`, 'info', 4000)
+    } else if (b.added > 0) {
+      toast(`✓ 已加入其他通路 ${b.added} 筆`, 'success', 2500)
+      setShowPanel(false)
+    }
+  }, [])
+
   useEffect(() => {
-    function onResult(e) {
-      if (!panelRef.current) return
-      let d
-      try { d = typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail } catch { return }
-      if (!d?.orderNo) return
-      if (d.ok && Number(d.amount) > 0) {
-        addOrder(d.orderNo, d.amount, true)
-      } else {
-        setNo(String(d.orderNo)); setAmt('')
-        setWarn(`⚠️ ${d.orderNo}：${d.reason || '查無金額'}，未帶入金額`)
+    function parse(e) { try { return typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail } catch { return null } }
+    function onBatch(e) {
+      const d = parse(e); if (!d) return
+      if (d.phase === 'start') {
+        if (!panelRef.current) return
+        batchRef.current = { active: true, ended: false, pending: 0, added: 0, issues: [] }
+        setWarn('')
+      } else if (d.phase === 'end') {
+        if (!batchRef.current.active) return
+        batchRef.current.ended = true
+        finishBatch()
       }
     }
+    function onResult(e) {
+      const d = parse(e)
+      if (!d?.orderNo) return
+      const batch = batchRef.current
+      if (!panelRef.current && !batch.active) return
+      clearTimeout(closeTimerRef.current)
+      const issue = msg => { if (batch.active) batch.issues.push(msg); else setWarn(`⚠️ ${msg}`) }
+      if (d.ok && Number(d.amount) > 0) {
+        if (batch.active) batch.pending++
+        addOrder(d.orderNo, d.amount, true).then(r => {
+          if (r?.ok) {
+            if (d.processing) { /* 商城已是處理中：仍可加入，以本系統兌換紀錄為準 */ }
+            if (batch.active) batch.added++
+            else {
+              // 沒收到「批次開始／結束」通知（外掛是舊版）：不能立刻關面板，否則後面還沒回來的單號會被漏掉；
+              // 改成「最後一筆加入後 5 秒沒有新結果」才自動關閉
+              toast(`✓ 已加入其他通路 ${d.orderNo}　NT$${Number(d.amount).toLocaleString()}`, 'success', 2500)
+              clearTimeout(closeTimerRef.current)
+              closeTimerRef.current = setTimeout(() => setShowPanel(false), 5000)
+            }
+          } else if (r?.msg) issue(r.msg)
+        }).finally(() => { if (batch.active) { batch.pending--; finishBatch() } })
+      } else {
+        issue(`${d.orderNo}：${d.reason || '查無金額'}，未加入`)
+        if (!batch.active) { setNo(String(d.orderNo)); setAmt('') }
+      }
+    }
+    window.addEventListener('topmall-batch', onBatch)
     window.addEventListener('topmall-order-result', onResult)
-    return () => window.removeEventListener('topmall-order-result', onResult)
-  }, [addOrder])
+    return () => {
+      window.removeEventListener('topmall-batch', onBatch)
+      window.removeEventListener('topmall-order-result', onResult)
+    }
+  }, [addOrder, finishBatch])
+
+  // ── 確認收款成功後，請外掛把這次合併的商城單改成「訂單處理中」，並把結果記回收款單 ──
+  const notifyPaid = useCallback((orderId, list) => {
+    const mergedList = (list || []).map(m => ({ order_no: m.order_no, amount: m.amount }))
+    if (mergedList.length === 0) return
+    const nos = mergedList.map(m => m.order_no)
+    let acked = false, done = false
+    const label = { changed: '已改為處理中', already: '原本就是處理中', skipped: '已出貨／已送達（未動）', failed: '改狀態失敗' }
+    const cleanup = () => {
+      window.removeEventListener('topmall-process-ack', onAck)
+      window.removeEventListener('topmall-process-done', onDone)
+    }
+    function onAck() { acked = true }
+    async function onDone(e) {
+      let d; try { d = JSON.parse(e.detail) } catch { return }
+      done = true; cleanup()
+      const results = d?.results || []
+      const by = Object.fromEntries(results.map(r => [r.orderNo, r.status]))
+      const changed = results.filter(r => r.status === 'changed').length
+      const failed  = results.filter(r => r.status === 'failed')
+      if (failed.length) toast(`⚠️ 商城單改狀態失敗：${failed.map(r => r.orderNo).join('、')}，請手動處理`, 'error', 8000)
+      else toast(`✓ 商城單已處理：${changed} 筆改為訂單處理中${results.length > changed ? `，${results.length - changed} 筆原本就不用改` : ''}`, 'success', 4000)
+      if (orderId) {
+        try {
+          await supabase.from('orders').update({
+            merged_orders: mergedList.map(m => ({ ...m, shop: label[by[m.order_no]] || '未回報' })),
+          }).eq('id', orderId)
+        } catch {}
+      }
+    }
+    window.addEventListener('topmall-process-ack', onAck)
+    window.addEventListener('topmall-process-done', onDone)
+    window.dispatchEvent(new CustomEvent('seller-confirm-paid', { detail: JSON.stringify({ orders: nos }) }))
+    setTimeout(() => {
+      if (!acked && !done) {
+        cleanup()
+        toast(`⚠️ 沒偵測到「訂單處理工具」外掛，請手動把這些商城單改為訂單處理中：${nos.join('、')}`, 'error', 9000)
+      }
+    }, 3000)
+    setTimeout(() => { if (!done) { cleanup() } }, 30000 + 20000 * nos.length)
+  }, [])
 
   // 通知外掛的查詢面板：合併面板開啟時展開，關閉時收折
   useEffect(() => {
@@ -104,7 +206,7 @@ export function useMergeChannel({ orderId = null } = {}) {
   return {
     enabled, setEnabled, orders, setOrders, showPanel, setShowPanel,
     no, setNo, amt, setAmt, warn, sum,
-    toggle, add: () => addOrder(no, amt), remove, close, reset,
+    toggle, add: () => addOrder(no, amt), remove, close, reset, notifyPaid,
   }
 }
 
@@ -158,7 +260,7 @@ export function MergeChannelModal({ merge, giftBase, giftList }) {
             <button type="button" id="merge-add" onClick={merge.add} className="btn-primary px-4 text-sm">加入</button>
           </div>
           {merge.warn && (
-            <p className="text-xs font-semibold text-amber-800 bg-amber-100 border border-amber-300 rounded-xl px-3 py-2">{merge.warn}</p>
+            <p className="text-xs font-semibold text-amber-800 bg-amber-100 border border-amber-300 rounded-xl px-3 py-2 whitespace-pre-line">{merge.warn}</p>
           )}
 
           {merge.orders.length > 0 && (
