@@ -103,12 +103,13 @@ receiver_postal_code, receiver_address, note,
 total_amount, status, payment_method,
 paid_at, shipped_at, tracking_no,
 payment_log (jsonb),   -- 付款方式修改紀錄
-source (text),         -- 'online' | 'booth_cashier'
+source (text),         -- 'online' | 'booth_cashier' | 'gift_redeem'（預購領取滿額贈，金額 0、無商品明細）
 ibox_full_address,     -- i 郵箱完整地址（migration 12）
 refunded_amount,       -- 累計退款金額（migration 14）
 merged_orders (jsonb), -- 合併的其他通路訂單 [{order_no, amount}]（migration 15）
 promo_gift (text),     -- 收款當下記錄的應送贈品，例「鑰匙圈×3、日期章×4」（migration 15）
 edit_log (jsonb),      -- 收款前數量調整紀錄（migration 16）
+promo_gift_items (jsonb), -- 應送贈品結構化 [{name,qty}]，報表加總用（migration 20）
 created_at
 ```
 status 允許值：`pending / paid / picking / packed / shipped / delivered / refunded / cancelled`
@@ -238,7 +239,13 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 - **滿額贈品提示**：依「發票金額（扣郵票）＋合併的其他通路金額」即時算出應送贈品與數量；計算邏輯在 `src/lib/gifts.js`
 - **合併其他通路訂單**：勾選後彈出面板輸入單號與金額（可多筆），同一單號已被別筆訂單合併會警示；收款時存入 `merged_orders`、`promo_gift`
 - **合併其他通路共用模組** `src/components/MergeChannel.jsx`：`useMergeChannel({orderId})` hook ＋ `MergeChannelRow`（勾選列）、`MergeChannelModal`（輸入面板）、`GiftCard`（滿額贈卡片）。BoothDashboard（預購取貨）與 CashierPage（現場收銀台）共用；收銀台結帳時同樣把 `merged_orders`、`promo_gift` 寫進 booth_cashier 訂單（缺 15 號 SQL 欄位時自動退回不含這兩欄）。收銀台購物車清空時自動重設合併資料，避免帶到下一位客人
-- **郵政商城查詢外掛連動**：jcn 另有自製 Tampermonkey 外掛 `topmall_orders.user.js`（v1.4.0），在 #/booth、#/cashier 右下角的查詢面板查完單號後，送出 `topmall-order-result` 事件（detail 為 JSON 字串 `{orderNo, ok, amount, reason}`）；收款頁只在「合併其他通路訂單」面板開著時接收。已付款且訂單成立（含紅利金額）→ **直接加入並自動關閉面板**（重複單號則維持開啟並警示）；取消／逾期／未付款只帶單號並顯示原因。反向事件 `seller-merge-panel`（detail `{open}`）由收款頁在面板開／關時送出，外掛據此展開／收折查詢面板（收款頁預設收折，只剩標題列）。查詢輸入框提示文字 18px。外掛不在 repo 內，改事件格式時兩邊都要改
+- **郵政商城查詢外掛連動**：jcn 另有自製 Tampermonkey 外掛 `topmall_orders.user.js`（v1.5.0），外掛不在 repo 內，改事件格式時兩邊都要改。事件（都用 window CustomEvent，detail 為 JSON 字串）：
+  - 外掛→網站 `topmall-batch {phase:'start'|'end'}`：一批查詢的開始／結束；網站在「合併面板開著」時才處理，整批查完才一次關閉面板（沒有問題才關；有未加入的單號就留著並列出原因）
+  - 外掛→網站 `topmall-order-result {orderNo, ok, amount, reason, processing}`：只有「已付款且（未出貨 或 已是訂單處理中）」ok=true 才**自動加入**（金額含紅利）；取消、逾期、未付款、已出貨、已送達、查詢失敗都不加入；已被別張有效收款單合併過的單號（已兌換）也不自動加入
+  - 網站→外掛 `seller-confirm-paid {orders:[…]}`：**按「確認收款」成功後**才送出；外掛逐筆執行「改成訂單處理中」（已是處理中／已出貨的自動略過），先回 `topmall-process-ack`，完成回 `topmall-process-done {results:[{orderNo,status:changed|already|skipped|failed}]}`；網站 3 秒沒收到 ack 會提示「沒偵測到外掛，請手動改」，並把每筆結果寫回該收款單 `merged_orders[].shop`
+  - 網站→外掛 `seller-merge-panel {open}`：合併面板開／關，外掛據此展開／收折右下角查詢面板（預設收折）
+  - 外掛面板仍保留「查詢」（唯讀）與「查詢並修改」（手動改為訂單處理中）；數字鍵盤「下一筆」＝在輸入框換行（並把游標移到新的一行）
+- **重複兌換防護**：判斷依據是本系統自己的紀錄（`orders.merged_orders`，收款時寫入；已取消／整筆退款的收款單不算），不看商城的「訂單處理中」狀態（同事誤按、或商城端自動變更都會誤判）。重複單號手動輸入仍可加入但會警示；注意查詢要用 `.contains('merged_orders', JSON.stringify([...]))`，直接傳陣列會被轉成 Postgres 陣列字面值而查不到
 - 「確認收款」紅色按鈕文字靠左（`justify-start pl-6`），避免被彈出的查詢面板遮住
 - **退貨／退款**（已收款）：左側用 ＋／－ 選退幾件或「整筆全選」，右側顯示應退金額與收銀步驟（現金退現金；刷卡/電子支付＝整筆刷退後重刷剩餘金額，郵票金額退現金）；退款後滿額贈品減少會提示追回；任何登入人員皆可操作，操作人員 email 記入 `order_refunds`
 - 右上角「今日」統計以**台灣時間 00:00** 為起點，排除待結帳與整筆退款訂單，另顯示「已扣退款」
@@ -248,6 +255,8 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 - 重複刷讀 = 數量 +1，可手動調整
 - 確認收款 → 建立 source='booth_cashier', status='delivered' 訂單
 - 右側收款完成後顯示本筆紀錄摘要
+- **預購領取滿額贈**：購物車為空時右欄有「🎁 預購領取滿額贈（沒有購買商品）」按鈕，打開合併其他通路面板；加入單號、算出應送贈品後按「確認領取」，建立 `source='gift_redeem'`、`total_amount=0`、`status='delivered'`、`payment_method=null` 的紀錄（含 merged_orders、promo_gift、promo_gift_items），並照常通知外掛把商城單改成訂單處理中。未達最低門檻不能領。無門檻限制（贈品本來就看合併後金額）。header 另顯示「領贈品 N 筆」，不計入「今日現場」筆數與營業額；出貨後台不顯示這類紀錄
+- 寫入訂單的相容處理：沒有 20 號 SQL 欄位時只略過 promo_gift_items，沒有 15 號 SQL 欄位時退回基本欄位，收款不會失敗
 
 ### 出貨後台（OrderDashboard）
 - 批次勾選：待揀貨/揀貨中/已出貨（BATCH_TABS）
@@ -283,7 +292,8 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 - 攤位收款頁掃到已取消訂單會顯示「此訂單已取消」，不能收款
 
 ### 銷售報表
-- 篩選：期間（快捷+自訂）× 來源（全部/預購/現場）
+- 篩選：期間（快捷+自訂）× 來源（全部/預購/現場/領贈品）
+- 「🎁 滿額贈品發放」卡片：領贈品筆數、合併其他通路單張數、各贈品發放總數（預購取貨＋現場＋領贈品合計，並列出其中「領贈品」的數量）、領贈品明細（時間／單號／合併單號與金額／贈品／商城單改狀態失敗警示）；舊訂單沒有 promo_gift_items 時改解析 promo_gift 文字。`gift_redeem` 不計入筆數、營業額、付款方式等銷售統計
 - 來源分布卡片、商品排行、付款方式分布、每日明細、訂單列表
 
 ---
@@ -313,6 +323,7 @@ repo 的 `supabase/` 資料夾只有前 3 個（初始架構）。
 | 17 | `17_daily_release.sql`：逐日釋放庫存（release_schedule 表、products.release_enabled/release_total、release_available()、product_release_availability()、改寫 decrement_stock） |
 | 18 | `18_cancel_pending.sql`：cancelled 狀態與欄位、cancel_order_core()、cancel_pending_orders()、pending_cutoff()、expire_pending_orders()、decrement_stock 加入過期清理 |
 | 19 | `19_per_order_limit.sql`：release_schedule.per_order_limit_enabled/per_order_limit、release_per_order_limit()、decrement_stock 加入每單限購檢查 |
+| 20 | `20_gift_items.sql`：orders.promo_gift_items（贈品結構化記錄）；「領贈品」用 source='gift_redeem' 標記，orders.source 沒有 CHECK 限制，不需 SQL |
 
 ---
 

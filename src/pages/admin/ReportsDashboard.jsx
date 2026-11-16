@@ -37,7 +37,8 @@ export default function ReportsDashboard() {
   const [preset,  setPreset]  = useState('本月')
   const [custom,  setCustom]  = useState({ start: '', end: '' })
   const [useCustom, setUseCustom] = useState(false)
-  const [sourceFilter, setSourceFilter] = useState('all')  // all | online | booth_cashier
+  const [sourceFilter, setSourceFilter] = useState('all')  // all | online | booth_cashier | gift_redeem
+  const [redeems, setRedeems] = useState([])               // 「預購領取滿額贈」紀錄（金額 0，不計入銷售統計）
   const printRef = useRef(null)
 
   // 計算查詢範圍
@@ -56,17 +57,20 @@ export default function ReportsDashboard() {
     const { s, e } = getRange()
     let q = supabase
       .from('orders')
-      .select('id,order_no,receiver_name,receiver_phone,total_amount,status,payment_method,created_at,shipped_at,source')
+      .select('*')
       .not('status', 'in', '(pending,refunded,cancelled)')
       .order('created_at', { ascending: false })
     if (sourceFilter !== 'all') q = q.eq('source', sourceFilter)
     if (s) q = q.gte('created_at', s.toISOString())
     if (e) q = q.lte('created_at', e.toISOString())
 
-    const { data: oData } = await q
-    setOrders(oData ?? [])
+    const { data: allData } = await q
+    // 「預購領取滿額贈」沒有銷售金額，獨立統計，不混進筆數／營業額
+    const oData = (allData ?? []).filter(o => o.source !== 'gift_redeem')
+    setRedeems((allData ?? []).filter(o => o.source === 'gift_redeem'))
+    setOrders(oData)
 
-    if (oData?.length) {
+    if (oData.length) {
       const { data: iData } = await supabase
         .from('order_items').select('*')
         .in('order_id', oData.map(o => o.id))
@@ -119,6 +123,28 @@ export default function ReportsDashboard() {
     if (sp.unknown) { unknownAmount += Number(o.total_amount); unknownCount++ }
     else { cashActual += sp.cash; nonCashActual += sp.nonCash }
   }
+
+  // ── 滿額贈品發放統計（預購取貨、現場購買、預購領取滿額贈 三種來源合計）──
+  // 優先用結構化欄位 promo_gift_items；舊資料沒有時改解析 promo_gift 文字（例「鑰匙圈×3、日期章×4」）
+  function giftsOf(o) {
+    if (Array.isArray(o.promo_gift_items) && o.promo_gift_items.length) return o.promo_gift_items
+    return String(o.promo_gift || '').split(/[、,，]/).map(x => x.trim()).filter(Boolean).map(x => {
+      const m = x.match(/^(.*?)\s*[×x*]\s*(\d+)$/i)
+      return m ? { name: m[1].trim(), qty: Number(m[2]) } : { name: x, qty: 1 }
+    })
+  }
+  const giftAll = sourceFilter === 'gift_redeem' ? redeems : [...orders, ...redeems]
+  const giftMap = {}
+  for (const o of giftAll) {
+    for (const g of giftsOf(o)) {
+      if (!giftMap[g.name]) giftMap[g.name] = { name: g.name, total: 0, redeem: 0 }
+      giftMap[g.name].total += Number(g.qty) || 0
+      if (o.source === 'gift_redeem') giftMap[g.name].redeem += Number(g.qty) || 0
+    }
+  }
+  const giftList = Object.values(giftMap).sort((a, b) => b.total - a.total)
+  const mergedCount = giftAll.reduce((n, o) => n + (Array.isArray(o.merged_orders) ? o.merged_orders.length : 0), 0)
+  const mergedOrdersOf = o => (Array.isArray(o.merged_orders) ? o.merged_orders : [])
 
   // 商品銷售排行
   const prodMap = {}
@@ -217,6 +243,7 @@ export default function ReportsDashboard() {
               { value: 'all',           label: '全部來源' },
               { value: 'online',        label: '📱 預購' },
               { value: 'booth_cashier', label: '🏪 現場' },
+              { value: 'gift_redeem',   label: '🎁 領贈品' },
             ].map(s => (
               <button key={s.value}
                 onClick={() => setSourceFilter(s.value)}
@@ -463,6 +490,61 @@ export default function ReportsDashboard() {
                 </div>
               </div>
 
+
+              {/* ── 滿額贈品發放 ── */}
+              {(giftList.length > 0 || redeems.length > 0) && (
+                <div className="bg-white rounded-xl border border-stone-200 p-5">
+                  <h2 className="font-bold text-stone-900 mb-3">🎁 滿額贈品發放</h2>
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="bg-red-50 rounded-xl p-3">
+                      <p className="text-xs text-red-600">領贈品（沒購買）</p>
+                      <p className="font-black text-xl text-red-700">{redeems.length} 筆</p>
+                    </div>
+                    <div className="bg-stone-50 rounded-xl p-3">
+                      <p className="text-xs text-stone-500">合併其他通路單</p>
+                      <p className="font-black text-xl text-stone-800">{mergedCount} 張</p>
+                    </div>
+                    <div className="bg-stone-50 rounded-xl p-3">
+                      <p className="text-xs text-stone-500">贈品總數</p>
+                      <p className="font-black text-xl text-stone-800">{giftList.reduce((n, g) => n + g.total, 0)} 個</p>
+                    </div>
+                  </div>
+                  {giftList.length > 0 && (
+                    <table className="w-full text-sm mb-4">
+                      <thead><tr className="text-xs text-stone-400 border-b border-stone-100">
+                        <th className="text-left py-1.5 font-semibold">贈品</th>
+                        <th className="text-right py-1.5 font-semibold">發放總數</th>
+                        <th className="text-right py-1.5 font-semibold">其中「領贈品」</th>
+                      </tr></thead>
+                      <tbody>
+                        {giftList.map(g => (
+                          <tr key={g.name} className="border-b border-stone-50">
+                            <td className="py-1.5 text-stone-700">{g.name}</td>
+                            <td className="py-1.5 text-right font-bold">{g.total}</td>
+                            <td className="py-1.5 text-right text-stone-500">{g.redeem}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {redeems.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-stone-500 mb-1.5">領贈品明細</p>
+                      <div className="space-y-1">
+                        {redeems.map(o => (
+                          <div key={o.id} className="text-xs bg-stone-50 rounded-lg px-3 py-2 flex flex-wrap gap-x-3 gap-y-0.5">
+                            <span className="text-stone-400">{new Date(o.created_at).toLocaleString('zh-TW', { hour12: false })}</span>
+                            <span className="font-mono text-stone-600">{o.order_no}</span>
+                            <span className="text-stone-700">{mergedOrdersOf(o).map(m => `${m.order_no}（$${Number(m.amount).toLocaleString()}）`).join('、')}</span>
+                            <span className="text-red-600 font-semibold">🎁 {o.promo_gift}</span>
+                            {mergedOrdersOf(o).some(m => m.shop === '改狀態失敗') && <span className="text-red-500">⚠️ 有商城單改狀態失敗</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* ── 來源分布 ── */}
               <div className="bg-white rounded-xl border border-stone-200 p-5">

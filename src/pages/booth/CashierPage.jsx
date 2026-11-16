@@ -19,6 +19,8 @@ export default function CashierPage() {
   const [todayStats, setTodayStats] = useState({ count: 0, total: 0 })
   const [lastSale, setLastSale]     = useState(null)  // 上一筆成功紀錄
   const [tiers, setTiers]       = useState([])    // 滿額活動門檻
+  const [redeemMode, setRedeemMode] = useState(false)  // 「預購領取滿額贈」：沒有購買商品，只拿其他通路訂單來領贈品
+  const [redeemCount, setRedeemCount] = useState(0)    // 今日領贈品筆數
   const merge = useMergeChannel()                 // 合併其他通路訂單（共用元件）
   const inputRef = useRef(null)
   const { signOut } = useAuth()
@@ -31,9 +33,9 @@ export default function CashierPage() {
 
   // 購物車清空（含逐項刪光）就把合併的其他通路訂單一併清掉，避免帶到下一位客人
   useEffect(() => {
-    if (cartItems.length === 0) merge.reset([])
+    if (cartItems.length === 0 && !redeemMode) merge.reset([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cartItems.length === 0])
+  }, [cartItems.length === 0, redeemMode])
 
   // 滿額贈設定：開頁時讀一次，之後每完成一筆再重讀，後台改設定不用重新整理
   async function loadTiers() {
@@ -64,6 +66,9 @@ export default function CashierPage() {
       count: data.length,
       total: data.reduce((s, r) => s + Number(r.total_amount), 0),
     })
+    const { count } = await supabase.from('orders').select('id', { count: 'exact', head: true })
+      .eq('source', 'gift_redeem').gte('created_at', today)
+    setRedeemCount(count ?? 0)
   }
 
   // ── 刷讀條碼 ─────────────────────────────────────────────
@@ -129,6 +134,65 @@ export default function CashierPage() {
   const giftBase   = invoiceAmt + merge.sum
   const giftList   = computeGifts(tiers, giftBase).gifts
 
+  // 寫入訂單；資料庫還沒執行 20 號 SQL（沒有 promo_gift_items）時只略過該欄，
+  // 還沒執行 15 號 SQL（連 merged_orders／promo_gift 都沒有）時退回只存基本欄位，收款照常完成
+  async function insertOrderCompat(row) {
+    const ins = r => supabase.from('orders').insert(r).select('id, order_no').single()
+    let res = await ins(row)
+    if (res.error && /promo_gift_items/.test(res.error.message)) {
+      const { promo_gift_items, ...rest } = row
+      res = await ins(rest)
+    }
+    if (res.error && /merged_orders|promo_gift/.test(res.error.message)) {
+      if (row.merged_orders?.length > 0) toast('資料庫尚未執行 15 號 SQL，合併訂單資訊未被記錄', 'error', 5000)
+      const { merged_orders, promo_gift, promo_gift_items, ...base } = row
+      res = await ins(base)
+    }
+    return res
+  }
+
+  // ── 預購領取滿額贈（沒有購買商品，只用其他通路訂單領贈品）──────────
+  function startRedeem() {
+    setRedeemMode(true)
+    setLastSale(null)
+    merge.reset([])
+    merge.toggle(true)          // 勾選並打開輸入面板，查詢外掛也會跟著展開
+  }
+  function cancelRedeem() {
+    setRedeemMode(false)
+    merge.reset([])
+    inputRef.current?.focus()
+  }
+  async function handleRedeem() {
+    if (confirming) return
+    if (merge.orders.length === 0) { toast('請先加入其他通路訂單', 'error'); return }
+    if (giftList.length === 0) { toast('合併金額未達滿額門檻，沒有贈品可領', 'error'); return }
+    setConfirming(true)
+    try {
+      const now = new Date().toISOString()
+      const row = {
+        receiver_name: '預購領贈品', receiver_phone: '—', receiver_address: '現場領取',
+        total_amount: 0, status: 'delivered', payment_method: null,
+        paid_at: now, shipped_at: now, source: 'gift_redeem',
+        merged_orders:    merge.orders.map(m => ({ order_no: m.order_no, amount: m.amount })),
+        promo_gift:       giftText(giftList),
+        promo_gift_items: giftList.map(g => ({ name: g.name, qty: g.qty })),
+      }
+      const { data: order, error } = await insertOrderCompat(row)
+      if (error) throw new Error(error.message)
+      merge.notifyPaid(order.id, merge.orders)   // 通知外掛把合併的商城單改成訂單處理中
+      setLastSale({ order_no: order.order_no, total: 0, method: null, items: [], redeem: true,
+        gift: giftText(giftList), merged: merge.orders.length })
+      toast('✓ 已記錄領取滿額贈', 'success', 3000)
+      setRedeemMode(false)
+      merge.reset([])
+      loadTodayStats()
+    } catch (err) {
+      toast('記錄失敗：' + err.message, 'error')
+    }
+    setConfirming(false)
+  }
+
   // ── 確認收款 ─────────────────────────────────────────────
   async function handleConfirm() {
     if (cartItems.length === 0) { toast('購物車是空的', 'error'); return }
@@ -148,17 +212,11 @@ export default function CashierPage() {
         source:           'booth_cashier',
       }
       const mergeRow = {
-        merged_orders: merge.orders.map(m => ({ order_no: m.order_no, amount: m.amount })),
-        promo_gift:    giftList.length ? giftText(giftList) : null,
+        merged_orders:    merge.orders.map(m => ({ order_no: m.order_no, amount: m.amount })),
+        promo_gift:       giftList.length ? giftText(giftList) : null,
+        promo_gift_items: giftList.map(g => ({ name: g.name, qty: g.qty })),
       }
-      let { data: order, error: orderErr } = await supabase
-        .from('orders').insert({ ...baseRow, ...mergeRow }).select('id, order_no').single()
-      // 保險：還沒執行 15 號 SQL（資料庫沒有新欄位）時，收款仍照常完成，只是不記錄合併資訊
-      if (orderErr && /merged_orders|promo_gift/.test(orderErr.message)) {
-        if (merge.orders.length > 0) toast('資料庫尚未執行 15 號 SQL，合併訂單資訊未被記錄', 'error', 5000)
-        ;({ data: order, error: orderErr } = await supabase
-          .from('orders').insert(baseRow).select('id, order_no').single())
-      }
+      let { data: order, error: orderErr } = await insertOrderCompat({ ...baseRow, ...mergeRow })
 
       if (orderErr) throw new Error(orderErr.message)
 
@@ -187,6 +245,7 @@ export default function CashierPage() {
         merged: merge.orders.length,
       })
       toast(`✓ 收款完成！NT$${total.toLocaleString()}`, 'success', 4000)
+      merge.notifyPaid(order.id, merge.orders)   // 通知外掛把合併的商城單改成訂單處理中
       setCartItems([])
       setPayMethod('cash')
       merge.reset([])
@@ -230,7 +289,7 @@ export default function CashierPage() {
             <Monitor size={13} /> 出貨管理後台
           </Link>
           <div className="text-right text-xs text-stone-400 border-l border-stone-700 pl-3 ml-1">
-            <p>今日現場 {todayStats.count} 筆</p>
+            <p>今日現場 {todayStats.count} 筆{redeemCount > 0 ? `・領贈品 ${redeemCount} 筆` : ''}</p>
             <p className="text-white font-bold text-sm">NT${todayStats.total.toLocaleString()}</p>
           </div>
           <button onClick={signOut} className="text-stone-400 hover:text-white p-2 ml-1">
@@ -357,17 +416,33 @@ export default function CashierPage() {
 
         {/* ══ 右欄：付款 ══════════════════════════════════════ */}
         <div className="flex flex-col overflow-y-auto bg-stone-50" style={{ width: '50%' }}>
-          {cartItems.length === 0 ? (
+          {cartItems.length === 0 && redeemMode ? (
+            <div className="flex flex-col h-full px-8 py-6 gap-5">
+              <div>
+                <p className="font-black text-lg text-stone-800">🎁 預購領取滿額贈</p>
+                <p className="text-xs text-stone-400 mt-0.5">客人沒有在現場購買，只用其他通路的訂單合併計算滿額領贈品</p>
+              </div>
+              <GiftCard tiers={tiers} invoice={0} mergedSum={merge.sum} />
+              <MergeChannelRow merge={merge} />
+              <button type="button" onClick={handleRedeem} disabled={confirming || merge.orders.length === 0 || giftList.length === 0}
+                className="btn-primary w-full py-5 text-xl font-black rounded-2xl shadow-lg mt-auto disabled:opacity-40">
+                <span className="flex items-center justify-start gap-3 pl-6">
+                  {confirming ? '處理中…' : '確認領取（記錄並送出贈品）'}
+                </span>
+              </button>
+              <button type="button" onClick={cancelRedeem} className="text-sm text-stone-400 hover:text-stone-600 -mt-2">取消</button>
+            </div>
+          ) : cartItems.length === 0 ? (
             // 空狀態：顯示上一筆紀錄
             <div className="flex flex-col items-center justify-center h-full px-8 gap-6">
               {lastSale ? (
                 <div className="w-full bg-white rounded-2xl border border-green-200 p-6 text-center">
                   <div className="text-4xl mb-3">✅</div>
-                  <p className="font-black text-2xl text-green-700 mb-1">
-                    NT${lastSale.total.toLocaleString()}
-                  </p>
+                  {lastSale.redeem
+                    ? <p className="font-black text-2xl text-green-700 mb-1">已記錄領取</p>
+                    : <p className="font-black text-2xl text-green-700 mb-1">NT${lastSale.total.toLocaleString()}</p>}
                   <p className="text-sm text-stone-500 mb-3">
-                    {PAYMENT_LABELS[lastSale.method]} · {lastSale.order_no}
+                    {lastSale.redeem ? '預購領取滿額贈' : PAYMENT_LABELS[lastSale.method]} · {lastSale.order_no}
                   </p>
                   <div className="text-xs text-stone-400 space-y-0.5">
                     {lastSale.items.map(i => (
@@ -386,6 +461,10 @@ export default function CashierPage() {
                   <p className="text-sm">刷讀商品後在這裡確認付款</p>
                 </div>
               )}
+              <button type="button" onClick={startRedeem}
+                className="w-full max-w-sm border-2 border-dashed border-red-300 text-red-500 hover:bg-red-50 rounded-2xl py-3 text-sm font-bold">
+                🎁 預購領取滿額贈（沒有購買商品）
+              </button>
             </div>
           ) : (
             <div className="flex flex-col h-full px-8 py-6 gap-5">

@@ -295,6 +295,7 @@ export default function OrderDashboard() {
   const loadOrders = useCallback(async () => {
     const { data } = await supabase
       .from('orders').select('*')
+      .or('source.is.null,source.neq.gift_redeem')   // 「預購領取滿額贈」的紀錄不是出貨單
       .order('created_at', { ascending: false }).limit(200)
     setOrders(data ?? [])
   }, [])

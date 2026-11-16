@@ -181,15 +181,21 @@ export default function BoothDashboard() {
     if (editMode) { toast('請先「儲存調整」或「取消」數量調整，再確認收款', 'error'); return }
     setConfirming(true)
     const basePatch = { status: 'paid', payment_method: payMethod, paid_at: new Date().toISOString() }
-    let { error } = await supabase.from('orders').update({
-      ...basePatch,
-      merged_orders: mergedOrders.map(m => ({ order_no: m.order_no, amount: m.amount })),
-      promo_gift: giftList.length ? giftText(giftList) : null,
-    }).eq('id', order.id)
-    // 保險：還沒執行 15 號 SQL（資料庫沒有新欄位）時，收款仍照常完成，只是不記錄合併資訊
+    const mergePatch = {
+      merged_orders:    mergedOrders.map(m => ({ order_no: m.order_no, amount: m.amount })),
+      promo_gift:       giftList.length ? giftText(giftList) : null,
+      promo_gift_items: giftList.map(g => ({ name: g.name, qty: g.qty })),
+    }
+    const upd = patch => supabase.from('orders').update(patch).eq('id', order.id)
+    let { error } = await upd({ ...basePatch, ...mergePatch })
+    // 還沒執行 20 號 SQL（沒有 promo_gift_items）→ 只略過該欄；還沒執行 15 號 SQL → 收款照常完成，只是不記錄合併資訊
+    if (error && /promo_gift_items/.test(error.message)) {
+      const { promo_gift_items, ...rest } = mergePatch
+      ;({ error } = await upd({ ...basePatch, ...rest }))
+    }
     if (error && /merged_orders|promo_gift/.test(error.message)) {
       if (mergedOrders.length > 0) toast('資料庫尚未執行 15 號 SQL，合併訂單資訊未被記錄', 'error', 5000)
-      ;({ error } = await supabase.from('orders').update(basePatch).eq('id', order.id))
+      ;({ error } = await upd(basePatch))
     }
 
     if (error) {
@@ -197,6 +203,7 @@ export default function BoothDashboard() {
     } else {
       toast(`✓ 已確認收款（${PAYMENT_LABELS[payMethod]}）`, 'success')
       setOrder(prev => ({ ...prev, status: 'paid', payment_method: payMethod }))
+      merge.notifyPaid(order.id, mergedOrders)   // 通知外掛把合併的商城單改成訂單處理中
       loadTodayStats()
 
       // ── 廣播給所有開著後台的人 ──────────────────────────
