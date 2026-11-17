@@ -239,7 +239,7 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 - **滿額贈品提示**：依「發票金額（扣郵票）＋合併的其他通路金額」即時算出應送贈品與數量；計算邏輯在 `src/lib/gifts.js`
 - **合併其他通路訂單**：勾選後彈出面板輸入單號與金額（可多筆），同一單號已被別筆訂單合併會警示；收款時存入 `merged_orders`、`promo_gift`
 - **合併其他通路共用模組** `src/components/MergeChannel.jsx`：`useMergeChannel({orderId})` hook ＋ `MergeChannelRow`（勾選列）、`MergeChannelModal`（輸入面板）、`GiftCard`（滿額贈卡片）。BoothDashboard（預購取貨）與 CashierPage（現場收銀台）共用；收銀台結帳時同樣把 `merged_orders`、`promo_gift` 寫進 booth_cashier 訂單（缺 15 號 SQL 欄位時自動退回不含這兩欄）。收銀台購物車清空時自動重設合併資料，避免帶到下一位客人
-- **郵政商城查詢外掛連動**：jcn 另有自製 Tampermonkey 外掛 `topmall_orders.user.js`（v1.5.0），外掛不在 repo 內，改事件格式時兩邊都要改。事件（都用 window CustomEvent，detail 為 JSON 字串）：
+- **郵政商城查詢外掛連動**：jcn 另有自製 Tampermonkey 外掛 `topmall_orders.user.js`（v1.6.2（程式放在 `public/topmall_orders.user.js`，網址 https://jcnmlm-ui.github.io/seller/topmall_orders.user.js，含 @updateURL/@downloadURL，Tampermonkey 會自動更新；每次改程式要調高 @version 並覆蓋該檔）；v1.6.1：合併面板開啟時游標自動停在單號欄；一個訂單編號有多張出貨單時也可加入，確認收款後逐張把「未出貨」改成訂單處理中；含已出貨／已送達的不加入也不修改），外掛不在 repo 內，改事件格式時兩邊都要改。事件（都用 window CustomEvent，detail 為 JSON 字串）：
   - 外掛→網站 `topmall-batch {phase:'start'|'end'}`：一批查詢的開始／結束；網站在「合併面板開著」時才處理，整批查完才一次關閉面板（沒有問題才關；有未加入的單號就留著並列出原因）
   - 外掛→網站 `topmall-order-result {orderNo, ok, amount, reason, processing}`：只有「已付款且（未出貨 或 已是訂單處理中）」ok=true 才**自動加入**（金額含紅利）；取消、逾期、未付款、已出貨、已送達、查詢失敗都不加入；已被別張有效收款單合併過的單號（已兌換）也不自動加入
   - 網站→外掛 `seller-confirm-paid {orders:[…]}`：**按「確認收款」成功後**才送出；外掛逐筆執行「改成訂單處理中」（已是處理中／已出貨的自動略過），先回 `topmall-process-ack`，完成回 `topmall-process-done {results:[{orderNo,status:changed|already|skipped|failed}]}`；網站 3 秒沒收到 ack 會提示「沒偵測到外掛，請手動改」，並把每筆結果寫回該收款單 `merged_orders[].shop`
