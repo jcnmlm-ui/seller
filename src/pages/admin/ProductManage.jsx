@@ -327,6 +327,14 @@ export default function ProductManage() {
     if (form.release_enabled) {
       if (!schedule)               { toast('請先設定「逐日釋放」的天數與權重', 'error'); return }
       if (!(inputStock > 0))       { toast('逐日釋放的活動總量必須大於 0', 'error'); return }
+      // 防呆：總量不可低於已售出數量（已售出 = 舊總量 − 目前剩餘庫存）
+      if (editing?.release_enabled && editing.release_total != null) {
+        const soldNow = Math.max(0, editing.release_total - editing.stock)
+        if (inputStock < soldNow) {
+          toast(`活動總量不可低於已售出數量（目前已售出 ${soldNow} 件）`, 'error')
+          return
+        }
+      }
     }
     setSaving(true)
     // 逐日釋放：release_total = 活動總量；剩餘庫存 = 總量 − 已售（已售 = 舊總量 − 舊庫存）
@@ -860,7 +868,7 @@ export default function ProductManage() {
                 )}
                 {form.release_enabled && editing?.release_enabled && (
                   <p className="text-xs text-stone-400 mt-1">
-                    修改總量時，已售出的數量會自動扣除（目前剩餘庫存 {editing.stock} 件）。
+                    修改總量時，已售出的數量會自動扣除（目前剩餘庫存 {editing.stock} 件，已售出 {Math.max(0, (editing.release_total ?? 0) - editing.stock)} 件；總量不可低於已售出）。
                   </p>
                 )}
               </div>
