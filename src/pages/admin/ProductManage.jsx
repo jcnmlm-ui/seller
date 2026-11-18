@@ -22,16 +22,16 @@ import { releasePlan, weightsSum, weightsValid, taipeiToday, taipeiDayIndex } fr
 const EMPTY_FORM = {
   name: '', description: '', barcode: '', price: '',
   stock: '-1', is_available: true, image_url: '',
-  stamp_amount: '0', release_enabled: false,
+  stamp_amount: '0', release_enabled: false, booth_only: false,
 }
 
 // ── 匯出／匯入 Excel 對應的資料庫欄位（順序即欄位順序）──────
 const EXCEL_COLUMNS = [
   'id', 'name', 'description', 'barcode', 'price',
-  'stamp_amount', 'stock', 'is_available', 'image_url',
+  'stamp_amount', 'stock', 'is_available', 'booth_only', 'image_url',
   'sort_order', 'created_at',
 ]
-const EXCEL_COL_WIDTHS = [36, 24, 30, 14, 10, 12, 8, 10, 40, 10, 20]
+const EXCEL_COL_WIDTHS = [36, 24, 30, 14, 10, 12, 8, 10, 10, 40, 10, 20]
 
 function fileTimestamp() {
   const d = new Date()
@@ -100,6 +100,9 @@ function SortableProduct({ product, onEdit, onDelete, onToggle, todayAvail }) {
           <span className="font-bold text-stone-900 text-sm">{product.name}</span>
           {!product.is_available && (
             <span className="text-xs bg-stone-100 text-stone-500 px-2 py-0.5 rounded-full">已下架</span>
+          )}
+          {product.booth_only && (
+            <span className="text-xs bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full">僅現場販售</span>
           )}
         </div>
         {product.barcode && (
@@ -276,6 +279,7 @@ export default function ProductManage() {
       image_url: p.image_url ?? '',
       stamp_amount: String(p.stamp_amount ?? 0),
       release_enabled: !!p.release_enabled,
+      booth_only: !!p.booth_only,
       // 逐日釋放中：表單的「活動總量」= release_total（不是剩餘庫存）
       ...(p.release_enabled && p.release_total != null ? { stock: String(p.release_total) } : {}),
     })
@@ -349,6 +353,7 @@ export default function ProductManage() {
       release_enabled: form.release_enabled,
       release_total:   releaseTotal,
       is_available: form.is_available,
+      booth_only:   form.booth_only,
       image_url:    form.image_url || null,
       stamp_amount: parseFloat(form.stamp_amount) || 0,
       // 新商品排在最後
@@ -391,6 +396,7 @@ export default function ProductManage() {
         stamp_amount: p.stamp_amount ?? 0,
         stock:        p.stock,
         is_available: p.is_available,
+        booth_only:   !!p.booth_only,
         image_url:    p.image_url ?? '',
         sort_order:   p.sort_order ?? '',
         created_at:   p.created_at ?? '',
@@ -461,6 +467,8 @@ export default function ProductManage() {
           is_available: excelToBool(r.is_available, true),
           image_url:    String(r.image_url ?? '').trim() || null,
         }
+        // 舊版 Excel 沒有 booth_only 欄時不動它，避免把既有設定洗回 false
+        if (r.booth_only !== undefined && String(r.booth_only).trim() !== '') payload.booth_only = excelToBool(r.booth_only, false)
         const sortOrderVal = excelToNum(r.sort_order, null)
         if (sortOrderVal !== null) payload.sort_order = sortOrderVal
 
@@ -863,6 +871,19 @@ export default function ProductManage() {
                   onChange={e => setForm(f=>({...f,is_available:e.target.checked}))}
                   className="w-5 h-5 rounded accent-red-500" />
                 <label htmlFor="avail" className="text-sm font-medium text-stone-700">立即上架</label>
+              </div>
+
+              {/* 僅現場販售 */}
+              <div>
+                <div className="flex items-center gap-3">
+                  <input type="checkbox" id="boothOnly" checked={form.booth_only}
+                    onChange={e => setForm(f=>({...f,booth_only:e.target.checked}))}
+                    className="w-5 h-5 rounded accent-purple-500" />
+                  <label htmlFor="boothOnly" className="text-sm font-medium text-stone-700">僅現場販售（預購網站不顯示）</label>
+                </div>
+                <p className="text-xs text-stone-400 mt-1 ml-8">
+                  勾選後只有現場收銀刷條碼才找得到，預購網站商品列表不會出現。
+                </p>
               </div>
             </div>
 

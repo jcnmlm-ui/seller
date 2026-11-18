@@ -192,7 +192,7 @@ export default function ProductList() {
     // 先清掉下單日已過、仍未結帳的訂單（庫存補回）；失敗不影響顯示
     await supabase.rpc('expire_pending_orders').then(() => {}, () => {})
     const [{ data, error }, avail] = await Promise.all([
-      supabase.from('products').select('*').eq('is_available', true)
+      supabase.from('products').select('*').eq('is_available', true).eq('booth_only', false)
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true }),
       // 逐日釋放：今日可買數量；函式不存在或失敗時視為不限制

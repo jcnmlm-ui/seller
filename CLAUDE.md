@@ -324,6 +324,7 @@ repo 的 `supabase/` 資料夾只有前 3 個（初始架構）。
 | 18 | `18_cancel_pending.sql`：cancelled 狀態與欄位、cancel_order_core()、cancel_pending_orders()、pending_cutoff()、expire_pending_orders()、decrement_stock 加入過期清理 |
 | 19 | `19_per_order_limit.sql`：release_schedule.per_order_limit_enabled/per_order_limit、release_per_order_limit()、decrement_stock 加入每單限購檢查 |
 | 20 | `20_gift_items.sql`：orders.promo_gift_items（贈品結構化記錄）；「領贈品」用 source='gift_redeem' 標記，orders.source 沒有 CHECK 限制，不需 SQL |
+| 21 | `21_booth_only.sql`：products.booth_only（僅現場販售；預購頁 ProductList 不顯示，現場收銀 CashierPage 刷條碼仍可查到；僅前端過濾，RLS 仍公開讀取） |
 
 ---
 
