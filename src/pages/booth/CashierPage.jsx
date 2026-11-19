@@ -18,6 +18,16 @@ function boothStockState(boothStock, lowAlert, qty) {
   return null
 }
 
+// 每單限購（與預購共用後台「逐日釋放設定」裡的每單限購數字）；未啟用或讀不到＝不限
+async function fetchPerOrderLimit() {
+  try {
+    const { data } = await supabase.from('release_schedule')
+      .select('per_order_limit_enabled, per_order_limit').eq('id', 'main').maybeSingle()
+    const n = Number(data?.per_order_limit)
+    return data?.per_order_limit_enabled && n > 0 ? n : null
+  } catch { return null }
+}
+
 export default function CashierPage() {
   const navigate = useNavigate()
   const enabledPayMethods = useEnabledPaymentMethods()
@@ -30,6 +40,7 @@ export default function CashierPage() {
   const [tiers, setTiers]       = useState([])    // 滿額活動門檻
   const [redeemMode, setRedeemMode] = useState(false)  // 「預購領取滿額贈」：沒有購買商品，只拿其他通路訂單來領贈品
   const [redeemCount, setRedeemCount] = useState(0)    // 今日領贈品筆數
+  const [perOrderLimit, setPerOrderLimit] = useState(null)   // 每單限購（只限逐日釋放商品）；null＝不限
   const merge = useMergeChannel()                 // 合併其他通路訂單（共用元件）
   const inputRef = useRef(null)
   const { signOut } = useAuth()
@@ -38,6 +49,12 @@ export default function CashierPage() {
     inputRef.current?.focus()
     loadTodayStats()
     loadTiers()
+    // 每單限購：開頁讀一次，之後每 60 秒更新（後台改數字不用重新整理）
+    let alive = true
+    const loadLimit = () => fetchPerOrderLimit().then(n => { if (alive) setPerOrderLimit(n) })
+    loadLimit()
+    const t = setInterval(loadLimit, 60000)
+    return () => { alive = false; clearInterval(t) }
   }, [])
 
   // 購物車清空（含逐項刪光）就把合併的其他通路訂單一併清掉，避免帶到下一位客人
@@ -90,7 +107,7 @@ export default function CashierPage() {
     // 查詢商品（用條碼）
     const { data: products, error } = await supabase
       .from('products')
-      .select('id, name, barcode, price, stamp_amount, stock, is_available, booth_stock, booth_low_alert')
+      .select('id, name, barcode, price, stamp_amount, stock, is_available, booth_stock, booth_low_alert, release_enabled')
       .eq('barcode', code)
       .eq('is_available', true)
       .limit(1)
@@ -102,6 +119,17 @@ export default function CashierPage() {
     }
 
     const p = products[0]
+
+    // 每單限購（只限逐日釋放商品）：刷讀當下重新讀一次設定，超過就擋下、不加入
+    const limit = await fetchPerOrderLimit()
+    setPerOrderLimit(limit)
+    const prevQty = cartItems.find(i => i.id === p.id)?.qty ?? 0
+    if (p.release_enabled && limit != null && prevQty + 1 > limit) {
+      toast(`「${p.name}」每單限購 ${limit} 件，已達上限，無法再刷讀`, 'error', 5000)
+      inputRef.current?.focus()
+      return
+    }
+
     // 現場庫存提醒（只警告、不阻擋）：以「刷入後購物車數量」計算剩餘
     const newQty = (cartItems.find(i => i.id === p.id)?.qty ?? 0) + 1
     const st = boothStockState(p.booth_stock, p.booth_low_alert, newQty)
@@ -120,16 +148,25 @@ export default function CashierPage() {
       const existing = prev.find(i => i.id === product.id)
       if (existing) {
         return prev.map(i => i.id === product.id
-          ? { ...i, qty: i.qty + 1, booth_stock: product.booth_stock ?? null, booth_low_alert: product.booth_low_alert ?? null }
+          ? { ...i, qty: i.qty + 1, release_enabled: !!product.release_enabled, booth_stock: product.booth_stock ?? null, booth_low_alert: product.booth_low_alert ?? null }
           : i)
       }
       return [...prev, { id: product.id, name: product.name, barcode: product.barcode, price: product.price, stamp_amount: product.stamp_amount ?? 0,
+        release_enabled: !!product.release_enabled,
         booth_stock: product.booth_stock ?? null, booth_low_alert: product.booth_low_alert ?? null, qty: 1 }]
     })
     toast(`✓ ${product.name} 已加入`, 'success', 1500)
   }
 
   function updateQty(id, delta) {
+    // 每單限購：按「+」超過上限就擋下
+    if (delta > 0 && perOrderLimit != null) {
+      const cur = cartItems.find(i => i.id === id)
+      if (cur?.release_enabled && cur.qty + delta > perOrderLimit) {
+        toast(`「${cur.name}」每單限購 ${perOrderLimit} 件，已達上限`, 'error', 4000)
+        return
+      }
+    }
     setCartItems(prev =>
       prev.map(i => i.id === id ? { ...i, qty: Math.max(0, i.qty + delta) } : i)
         .filter(i => i.qty > 0)
@@ -220,6 +257,18 @@ export default function CashierPage() {
     setConfirming(true)
 
     try {
+      // 每單限購：收款前再讀一次最新設定（可能剛被調低），有超過的品項就擋下、不建立訂單
+      const limitNow = await fetchPerOrderLimit()
+      setPerOrderLimit(limitNow)
+      if (limitNow != null) {
+        const over = cartItems.filter(i => i.release_enabled && i.qty > limitNow)
+        if (over.length) {
+          toast(`每單限購 ${limitNow} 件，請先減少：${over.map(i => `${i.name}（${i.qty}）`).join('、')}`, 'error', 7000)
+          setConfirming(false)
+          return
+        }
+      }
+
       // 建立已付款訂單（source = booth_cashier）
       const baseRow = {
         receiver_name:    '現場客戶',
@@ -383,6 +432,11 @@ export default function CashierPage() {
                           <p className="text-xs text-blue-500">📮 含郵票 NT${(item.stamp_amount * item.qty).toLocaleString()}</p>
                         )}
                       </div>
+                      {item.release_enabled && perOrderLimit != null && item.qty >= perOrderLimit && (
+                        <p className={`text-xs font-bold ${item.qty > perOrderLimit ? 'text-red-600' : 'text-amber-600'}`}>
+                          🔒 每單限購 {perOrderLimit} 件{item.qty > perOrderLimit ? '，請減少數量' : '（已達上限）'}
+                        </p>
+                      )}
                       {(() => {
                         const st = boothStockState(item.booth_stock, item.booth_low_alert, item.qty)
                         return st && (
@@ -400,7 +454,8 @@ export default function CashierPage() {
                       </button>
                       <span className="font-bold text-stone-800 w-6 text-center text-sm">{item.qty}</span>
                       <button onClick={() => updateQty(item.id, 1)}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-600 hover:bg-stone-100 font-bold text-lg">
+                        disabled={item.release_enabled && perOrderLimit != null && item.qty >= perOrderLimit}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-stone-600 hover:bg-stone-100 font-bold text-lg disabled:opacity-30 disabled:cursor-not-allowed">
                         +
                       </button>
                     </div>

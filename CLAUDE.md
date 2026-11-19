@@ -283,7 +283,7 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 - 計算邏輯：`src/lib/release.js`（後台預覽）與 SQL 規則一致
 
 - **數量上限**：顧客頁與結帳頁的 ＋ 按鈕，上限＝min(實際庫存, 逐日釋放今日可買, 每單限購)；庫存 -1 不限；到上限即變灰，只顯示「庫存已達上限」（不顯示剩幾件，避免讓人推算攤位帶多少貨）或「每單限購 N 件」；超過會擋送出。伺服器 `decrement_stock` 仍是最後防線
-- **每單限購**（migration 19）：後台「商品管理 → 逐日釋放設定」可開關並輸入數字（`release_schedule.per_order_limit_enabled / per_order_limit`），只限制有開逐日釋放的商品、一般商品不受影響；`decrement_stock` 超過會回「每單限購 N 件」；前台讀 `release_schedule` 顯示
+- **每單限購**（migration 19）：後台「商品管理 → 逐日釋放設定」可開關並輸入數字（`release_schedule.per_order_limit_enabled / per_order_limit`），只限制有開逐日釋放的商品、一般商品不受影響；`decrement_stock` 超過會回「每單限購 N 件」；前台讀 `release_schedule` 顯示；**現場收銀台（CashierPage）也套用同一個數字**：只限逐日釋放商品、同一商品每單最多 N 件，刷讀或按「+」超過會擋下，收款前再檢查一次（前端檢查，不經伺服器）；後台關閉每單限購或改數字，現場最多 60 秒內跟著變
 
 ### 待收款訂單管理（migration 18，`/admin/pending`）
 - 預購下單即扣庫存，未結帳的訂單會佔庫存；此頁列出待收款／已取消訂單，可用訂單號、姓名、手機搜尋，依下單日（今天／昨天）與商品篩選，單筆或勾選多筆取消
