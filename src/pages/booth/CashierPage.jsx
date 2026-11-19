@@ -9,6 +9,15 @@ import { toast } from '../../components/StatusBadge'
 import { computeGifts, giftText } from '../../lib/gifts'
 import { useMergeChannel, MergeChannelRow, MergeChannelModal, GiftCard } from '../../components/MergeChannel'
 
+// 現場庫存提醒：booth_stock 為 null＝不追蹤；剩餘 ≤ 0 一律提醒，其餘低於 booth_low_alert 才提醒
+function boothStockState(boothStock, lowAlert, qty) {
+  if (boothStock == null) return null
+  const remaining = boothStock - qty
+  if (remaining <= 0) return { remaining, zero: true }
+  if (lowAlert != null && remaining < lowAlert) return { remaining, zero: false }
+  return null
+}
+
 export default function CashierPage() {
   const navigate = useNavigate()
   const enabledPayMethods = useEnabledPaymentMethods()
@@ -81,7 +90,7 @@ export default function CashierPage() {
     // 查詢商品（用條碼）
     const { data: products, error } = await supabase
       .from('products')
-      .select('id, name, barcode, price, stamp_amount, stock, is_available')
+      .select('id, name, barcode, price, stamp_amount, stock, is_available, booth_stock, booth_low_alert')
       .eq('barcode', code)
       .eq('is_available', true)
       .limit(1)
@@ -93,7 +102,16 @@ export default function CashierPage() {
     }
 
     const p = products[0]
+    // 現場庫存提醒（只警告、不阻擋）：以「刷入後購物車數量」計算剩餘
+    const newQty = (cartItems.find(i => i.id === p.id)?.qty ?? 0) + 1
+    const st = boothStockState(p.booth_stock, p.booth_low_alert, newQty)
     addToCart(p)
+    if (st) {
+      toast(st.zero
+        ? `「${p.name}」現場庫存已用完（系統剩 ${st.remaining} 件），仍可繼續銷售，請確認實際數量`
+        : `「${p.name}」現場庫存剩 ${st.remaining} 件，低於提醒值 ${p.booth_low_alert}`,
+        'warning', 6000)
+    }
     inputRef.current?.focus()
   }
 
@@ -101,9 +119,12 @@ export default function CashierPage() {
     setCartItems(prev => {
       const existing = prev.find(i => i.id === product.id)
       if (existing) {
-        return prev.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i)
+        return prev.map(i => i.id === product.id
+          ? { ...i, qty: i.qty + 1, booth_stock: product.booth_stock ?? null, booth_low_alert: product.booth_low_alert ?? null }
+          : i)
       }
-      return [...prev, { id: product.id, name: product.name, barcode: product.barcode, price: product.price, stamp_amount: product.stamp_amount ?? 0, qty: 1 }]
+      return [...prev, { id: product.id, name: product.name, barcode: product.barcode, price: product.price, stamp_amount: product.stamp_amount ?? 0,
+        booth_stock: product.booth_stock ?? null, booth_low_alert: product.booth_low_alert ?? null, qty: 1 }]
     })
     toast(`✓ ${product.name} 已加入`, 'success', 1500)
   }
@@ -235,6 +256,14 @@ export default function CashierPage() {
 
       if (itemsErr) throw new Error(itemsErr.message)
 
+      // 扣現場庫存（與預購庫存分開；失敗不影響這筆收款，只提醒）
+      try {
+        const { error: bsErr } = await supabase.rpc('booth_deduct_stock', { p_order_id: order.id })
+        if (bsErr) throw bsErr
+      } catch (e) {
+        toast('現場庫存扣減失敗（這筆收款已完成）：' + (e.message ?? e), 'warning', 6000)
+      }
+
       // 成功
       setLastSale({
         order_no: order.order_no,
@@ -354,6 +383,14 @@ export default function CashierPage() {
                           <p className="text-xs text-blue-500">📮 含郵票 NT${(item.stamp_amount * item.qty).toLocaleString()}</p>
                         )}
                       </div>
+                      {(() => {
+                        const st = boothStockState(item.booth_stock, item.booth_low_alert, item.qty)
+                        return st && (
+                          <p className="text-xs font-bold text-amber-600">
+                            ⚠ {st.zero ? `現場庫存已用完（系統剩 ${st.remaining} 件）` : `現場庫存剩 ${st.remaining} 件（低於 ${item.booth_low_alert}）`}
+                          </p>
+                        )
+                      })()}
                     </div>
                     {/* 數量調整 */}
                     <div className="flex items-center gap-1 bg-white rounded-xl border border-stone-200 px-1 py-1 flex-shrink-0">

@@ -23,15 +23,16 @@ const EMPTY_FORM = {
   name: '', description: '', barcode: '', price: '',
   stock: '-1', is_available: true, image_url: '',
   stamp_amount: '0', release_enabled: false, booth_only: false,
+  booth_stock: '', booth_low_alert: '',   // 現場庫存（空白＝不追蹤）／低於幾件提醒（空白＝不提醒）
 }
 
 // ── 匯出／匯入 Excel 對應的資料庫欄位（順序即欄位順序）──────
 const EXCEL_COLUMNS = [
   'id', 'name', 'description', 'barcode', 'price',
-  'stamp_amount', 'stock', 'is_available', 'booth_only', 'image_url',
+  'stamp_amount', 'stock', 'is_available', 'booth_only', 'booth_stock', 'booth_low_alert', 'image_url',
   'sort_order', 'created_at',
 ]
-const EXCEL_COL_WIDTHS = [36, 24, 30, 14, 10, 12, 8, 10, 10, 40, 10, 20]
+const EXCEL_COL_WIDTHS = [36, 24, 30, 14, 10, 12, 8, 10, 10, 12, 14, 40, 10, 20]
 
 function fileTimestamp() {
   const d = new Date()
@@ -116,6 +117,14 @@ function SortableProduct({ product, onEdit, onDelete, onToggle, todayAvail }) {
             </span>
           )}
           <span className="text-stone-400">庫存：{product.stock === -1 ? '無限' : `${product.stock} 件`}</span>
+          {product.booth_stock != null && (
+            <span className={`text-xs px-1.5 py-0.5 rounded-full border ${
+              product.booth_stock <= 0 || (product.booth_low_alert != null && product.booth_stock < product.booth_low_alert)
+                ? 'bg-red-50 text-red-600 border-red-200 font-bold'
+                : 'bg-purple-50 text-purple-700 border-purple-200'}`}>
+              現場庫存 {product.booth_stock}{product.booth_low_alert != null ? `（<${product.booth_low_alert} 提醒）` : ''}
+            </span>
+          )}
           {product.release_enabled && todayAvail !== null && (
             <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full">
               逐日釋放・今日可買 {todayAvail}
@@ -280,6 +289,8 @@ export default function ProductManage() {
       stamp_amount: String(p.stamp_amount ?? 0),
       release_enabled: !!p.release_enabled,
       booth_only: !!p.booth_only,
+      booth_stock: p.booth_stock == null ? '' : String(p.booth_stock),
+      booth_low_alert: p.booth_low_alert == null ? '' : String(p.booth_low_alert),
       // 逐日釋放中：表單的「活動總量」= release_total（不是剩餘庫存）
       ...(p.release_enabled && p.release_total != null ? { stock: String(p.release_total) } : {}),
     })
@@ -362,6 +373,8 @@ export default function ProductManage() {
       release_total:   releaseTotal,
       is_available: form.is_available,
       booth_only:   form.booth_only,
+      booth_stock:     form.booth_stock === '' || isNaN(parseInt(form.booth_stock)) ? null : parseInt(form.booth_stock),
+      booth_low_alert: form.booth_low_alert === '' || isNaN(parseInt(form.booth_low_alert)) ? null : parseInt(form.booth_low_alert),
       image_url:    form.image_url || null,
       stamp_amount: parseFloat(form.stamp_amount) || 0,
       // 新商品排在最後
@@ -405,6 +418,8 @@ export default function ProductManage() {
         stock:        p.stock,
         is_available: p.is_available,
         booth_only:   !!p.booth_only,
+        booth_stock:     p.booth_stock ?? '',
+        booth_low_alert: p.booth_low_alert ?? '',
         image_url:    p.image_url ?? '',
         sort_order:   p.sort_order ?? '',
         created_at:   p.created_at ?? '',
@@ -477,6 +492,13 @@ export default function ProductManage() {
         }
         // 舊版 Excel 沒有 booth_only 欄時不動它，避免把既有設定洗回 false
         if (r.booth_only !== undefined && String(r.booth_only).trim() !== '') payload.booth_only = excelToBool(r.booth_only, false)
+        // 現場庫存欄：Excel 沒有這兩欄時不動；有欄位但留空＝不追蹤／不提醒
+        for (const col of ['booth_stock', 'booth_low_alert']) {
+          if (r[col] !== undefined) {
+            const t = String(r[col]).trim()
+            payload[col] = t === '' || isNaN(parseInt(t)) ? null : parseInt(t)
+          }
+        }
         const sortOrderVal = excelToNum(r.sort_order, null)
         if (sortOrderVal !== null) payload.sort_order = sortOrderVal
 
@@ -879,6 +901,28 @@ export default function ProductManage() {
                   onChange={e => setForm(f=>({...f,is_available:e.target.checked}))}
                   className="w-5 h-5 rounded accent-red-500" />
                 <label htmlFor="avail" className="text-sm font-medium text-stone-700">立即上架</label>
+              </div>
+
+              {/* 現場庫存（與預購庫存分開，只用於現場收銀） */}
+              <div className="bg-purple-50/50 border border-purple-100 rounded-xl p-3 space-y-2">
+                <p className="text-sm font-medium text-stone-700">現場庫存（與上方預購庫存分開，只用於現場收銀）</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">現場庫存數量</label>
+                    <input className="input" type="number" step="1" value={form.booth_stock}
+                      onChange={e => setForm(f=>({...f,booth_stock:e.target.value}))}
+                      placeholder="空白＝不追蹤" />
+                  </div>
+                  <div>
+                    <label className="label">低於幾件提醒</label>
+                    <input className="input" type="number" min="0" step="1" value={form.booth_low_alert}
+                      onChange={e => setForm(f=>({...f,booth_low_alert:e.target.value}))}
+                      placeholder="例：10" />
+                  </div>
+                </div>
+                <p className="text-xs text-stone-400">
+                  現場收款成功後自動扣減；刷讀時剩餘數量低於提醒值就跳警告（只警告，仍可銷售）。可隨時直接改成目前實際數量。預購訂單不會扣這個數字。
+                </p>
               </div>
 
               {/* 僅現場販售 */}

@@ -325,6 +325,8 @@ repo 的 `supabase/` 資料夾只有前 3 個（初始架構）。
 | 19 | `19_per_order_limit.sql`：release_schedule.per_order_limit_enabled/per_order_limit、release_per_order_limit()、decrement_stock 加入每單限購檢查 |
 | 20 | `20_gift_items.sql`：orders.promo_gift_items（贈品結構化記錄）；「領贈品」用 source='gift_redeem' 標記，orders.source 沒有 CHECK 限制，不需 SQL |
 | 21 | `21_booth_only.sql`：products.booth_only（僅現場販售；預購頁 ProductList 不顯示，現場收銀 CashierPage 刷條碼仍可查到；僅前端過濾，RLS 仍公開讀取） |
+| 22 | `22_order_lock.sql`：臨時封鎖預購下單（decrement_stock 最前面檢查時間，2026-11-20 00:00 前拒絕；前端見 `src/lib/orderLock.js`）；時間一過自動失效 |
+| 23 | `23_booth_stock.sql`：products.booth_stock（現場庫存，NULL＝不追蹤）／booth_low_alert（刷讀時低於此數字就警告）、orders.booth_stock_deducted、booth_deduct_stock(order_id)（現場收款後扣）；只警告不阻擋，預購單不扣現場庫存；現場收銀單目前沒有退款功能，退貨時請到後台直接改現場庫存 |
 
 ---
 

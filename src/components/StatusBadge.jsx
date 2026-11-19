@@ -23,8 +23,8 @@ export function ToastProvider({ children }) {
       <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
         {toasts.map(t => (
           <div key={t.id} className={`toast-enter pointer-events-auto shadow-lg rounded-xl px-4 py-3 text-sm font-semibold flex items-center gap-2 max-w-xs
-            ${t.type === 'error' ? 'bg-red-500 text-white' : t.type === 'success' ? 'bg-green-500 text-white' : 'bg-stone-800 text-white'}`}>
-            {t.type === 'success' ? '✓' : t.type === 'error' ? '✕' : 'ℹ'} {t.msg}
+            ${t.type === 'error' ? 'bg-red-500 text-white' : t.type === 'success' ? 'bg-green-500 text-white' : t.type === 'warning' ? 'bg-amber-500 text-white' : 'bg-stone-800 text-white'}`}>
+            {t.type === 'success' ? '✓' : t.type === 'error' ? '✕' : t.type === 'warning' ? '⚠' : 'ℹ'} {t.msg}
           </div>
         ))}
       </div>
