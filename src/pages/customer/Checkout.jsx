@@ -7,6 +7,7 @@ import { CITIES, getDistricts, getPostalCode } from '../../data/postal_codes'
 import { PAYMENT_LABELS } from '../../config/store'
 import { useEnabledPaymentMethods } from '../../hooks/useEnabledPaymentMethods'
 import PromotionBanner from '../../components/PromotionBanner'
+import { useOrderLock, ORDER_LOCK_MESSAGE } from '../../lib/orderLock'
 
 // goibox.tw 的 i 郵箱查詢 Edge Function
 const GOIBOX_API_URL = 'https://vhryiktpxidehcamxcek.supabase.co/functions/v1/search-ibox'
@@ -173,7 +174,10 @@ export default function Checkout() {
     return Object.keys(e).length === 0
   }
 
+  const locked = useOrderLock()   // 暫停下單期間（見 lib/orderLock.js）
+
   async function handleSubmit() {
+    if (locked) { alert(ORDER_LOCK_MESSAGE); return }
     if (items.some(overCap)) {
       alert('部分商品數量超過上限，請先依紅字提示減少數量')
       return
@@ -250,6 +254,12 @@ export default function Checkout() {
           <h1 className="font-bold text-stone-900">確認訂單</h1>
         </div>
       </header>
+
+      {locked && (
+        <div className="bg-red-500 text-white text-sm font-bold text-center px-4 py-3 leading-relaxed">
+          🚧 {ORDER_LOCK_MESSAGE}
+        </div>
+      )}
 
       <div className="max-w-lg mx-auto px-4 py-5 space-y-5 fade-up">
 
@@ -566,8 +576,8 @@ export default function Checkout() {
       {/* 底部送出 */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 p-4">
         <div className="max-w-lg mx-auto">
-          <button onClick={handleSubmit} disabled={loading} className="btn-primary w-full text-base py-4">
-            {loading ? (
+          <button onClick={handleSubmit} disabled={loading || locked} className="btn-primary w-full text-base py-4 disabled:opacity-60 disabled:cursor-not-allowed">
+            {locked ? '暫停下單中' : loading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 送出中…

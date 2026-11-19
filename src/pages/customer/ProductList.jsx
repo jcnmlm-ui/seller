@@ -6,6 +6,7 @@ import { useCart } from '../../context/CartContext'
 import { STORE } from '../../config/store'
 import PromotionBanner from '../../components/PromotionBanner'
 import { toast } from '../../components/StatusBadge'
+import { useOrderLock, ORDER_LOCK_MESSAGE } from '../../lib/orderLock'
 
 // ── 個資蒐集聲明 Modal ────────────────────────────────────
 function PrivacyModal({ onAccept }) {
@@ -73,7 +74,7 @@ function PrivacyModal({ onAccept }) {
 }
 
 // ── 商品卡片 ──────────────────────────────────────────────
-function ProductCard({ product, cartItem, onAdd, onUpdate }) {
+function ProductCard({ product, cartItem, onAdd, onUpdate, locked }) {
   // _avail：逐日釋放商品「今天還能買幾件」（null＝不受逐日釋放限制）
   const limited = product._avail != null
   const todaySoldOut = limited && product._avail <= 0
@@ -130,14 +131,14 @@ function ProductCard({ product, cartItem, onAdd, onUpdate }) {
             今日已售完<br /><span className="font-normal">明天 00:00 開放更多</span>
           </div>
         ) : !cartItem ? (
-          <button onClick={onAdd} className="btn-primary w-full text-sm py-2 !rounded-xl">
-            加入購物車
+          <button onClick={onAdd} disabled={locked} className="btn-primary w-full text-sm py-2 !rounded-xl disabled:opacity-50 disabled:cursor-not-allowed">
+            {locked ? '暫停下單' : '加入購物車'}
           </button>
         ) : (
           <div className="flex items-center justify-between bg-stone-50 rounded-xl px-2 py-1.5">
             <button className="qty-btn" onClick={() => onUpdate(cartItem.quantity - 1)}>−</button>
             <span className="font-bold text-stone-800 w-6 text-center">{cartItem.quantity}</span>
-            <button className="qty-btn disabled:opacity-30" disabled={atLimit}
+            <button className="qty-btn disabled:opacity-30" disabled={atLimit || locked}
               onClick={() => onUpdate(cartItem.quantity + 1)}>+</button>
           </div>
         )}
@@ -157,6 +158,7 @@ export default function ProductList() {
   const [showPrivacy, setShowPrivacy] = useState(false)
   // total = 實收金額（含郵票）；invoiceTotal = 發票金額（扣除郵票），滿額活動以發票金額計算
   const { items, dispatch, count, total, invoiceTotal } = useCart()
+  const locked = useOrderLock()   // 暫停下單期間（見 lib/orderLock.js）
 
   // ── 試手氣！一鍵滿額 ──────────────────────────────────
   const [luckyTarget, setLuckyTarget]   = useState(null)  // 最高的啟用中滿額門檻
@@ -220,6 +222,7 @@ export default function ProductList() {
   // 滿額活動以發票金額計算：商品含郵票時，只有 price − stamp_amount 的部分計入滿額
   function handleLuckyDraw() {
     if (!luckyTarget || luckyDrawing) return
+    if (locked) { toast(ORDER_LOCK_MESSAGE, 'error'); return }
     const remaining = luckyTarget - invoiceTotal
     if (remaining <= 0) {
       toast('已經達成最高門檻囉，小精靈不用出動啦！🎉', 'info')
@@ -295,6 +298,11 @@ export default function ProductList() {
 
       {/* ── 固定頂部 Header ── */}
       <header className="flex-shrink-0 bg-white border-b border-stone-200 shadow-sm z-10">
+        {locked && (
+          <div className="bg-red-500 text-white text-xs font-bold text-center px-4 py-2 leading-relaxed">
+            🚧 {ORDER_LOCK_MESSAGE}
+          </div>
+        )}
         <div className="max-w-lg mx-auto px-4 pt-3 pb-2 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h1 className="text-base font-black text-stone-900 leading-tight truncate">{STORE.name}</h1>
@@ -341,7 +349,7 @@ export default function ProductList() {
             {luckyTarget && invoiceTotal < luckyTarget && (
               <button
                 onClick={handleLuckyDraw}
-                disabled={luckyDrawing}
+                disabled={luckyDrawing || locked}
                 title="選擇困難嗎？一鍵滿額！"
                 className="flex items-center gap-1 px-2.5 py-2.5 rounded-xl font-bold text-xs text-white
                   bg-gradient-to-r from-amber-400 to-orange-500 shadow-sm
@@ -389,6 +397,7 @@ export default function ProductList() {
                   cartItem={inCart(p.id)}
                   onAdd={() => dispatch({ type: 'ADD', product: p })}
                   onUpdate={qty => dispatch({ type: 'UPDATE_QTY', id: p.id, qty })}
+                  locked={locked}
                 />
               ))}
             </div>
