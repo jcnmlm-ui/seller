@@ -20,7 +20,7 @@ export default function BoothDashboard() {
   const [phoneResultItems, setPhoneResultItems] = useState({}) // { [order_id]: [{product_name, quantity}] }，供預覽清單顯示購買品項
   const [confirming, setConfirming] = useState(false)
   const [payMethod, setPayMethod]   = useState('cash')
-  const [todayStats, setTodayStats] = useState({ count: 0, total: 0 })
+  const [todayStats, setTodayStats] = useState({ preCount: 0, preTotal: 0, boothCount: 0, boothTotal: 0 })
   const [editingPayment, setEditingPayment] = useState(false)
   const [editPayMethod, setEditPayMethod]   = useState('cash')
   // ── 退貨 / 退款 ──
@@ -68,13 +68,20 @@ export default function BoothDashboard() {
   async function loadTodayStats() {
     // 以台灣時間 00:00 當每天起點（toISOString 是 UTC，早上 8 點前會算到前一天）
     const today = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' }) + 'T00:00:00+08:00').toISOString()
-    // 待結帳、整筆退款的訂單不算營業額；部分退款的訂單 total_amount 已是退款後金額
+    // 以「今天收款」(paid_at) 為準；待結帳、整筆退款、已取消、領贈品(金額0) 不算
+    // 預購收款 = 顧客預購單在攤位收款；現場 = 現場收銀台銷售（與收銀台頁面口徑一致）
+    // 部分退款的訂單 total_amount 已是退款後金額
     const { data } = await supabase
-      .from('orders').select('total_amount').not('status', 'in', '(pending,refunded,cancelled)').gte('created_at', today)
-    if (data) setTodayStats({
-      count: data.length,
-      total: data.reduce((s, r) => s + r.total_amount, 0),
-    })
+      .from('orders').select('total_amount, source')
+      .not('status', 'in', '(pending,refunded,cancelled)')
+      .or('source.is.null,source.neq.gift_redeem')
+      .gte('paid_at', today)
+    if (data) {
+      const booth = data.filter(r => r.source === 'booth_cashier')
+      const pre   = data.filter(r => r.source !== 'booth_cashier')
+      const sum = arr => arr.reduce((s, r) => s + Number(r.total_amount), 0)
+      setTodayStats({ preCount: pre.length, preTotal: sum(pre), boothCount: booth.length, boothTotal: sum(booth) })
+    }
     const { data: rf } = await supabase
       .from('order_refunds').select('refund_total').gte('created_at', today)
     setTodayRefund((rf ?? []).reduce((s, r) => s + Number(r.refund_total), 0))
@@ -404,9 +411,10 @@ export default function BoothDashboard() {
             <Monitor size={13} /> 出貨管理後台
           </Link>
           <div className="text-right text-xs text-white/70 border-l border-white/25 pl-3 ml-1">
-            <p>今日 {todayStats.count} 筆</p>
-            <p className="text-white font-bold text-sm">NT${todayStats.total.toLocaleString()}</p>
-            {todayRefund > 0 && <p className="text-white/70" style={{ fontSize: '10px' }}>已扣退款 NT${todayRefund.toLocaleString()}</p>}
+            <p>今日預購收款 {todayStats.preCount} 筆</p>
+            <p className="text-white font-bold text-sm">NT${todayStats.preTotal.toLocaleString()}</p>
+            <p className="text-white/70" style={{ fontSize: '10px' }}>現場銷售 {todayStats.boothCount} 筆 NT${todayStats.boothTotal.toLocaleString()}</p>
+            {todayRefund > 0 && <p className="text-white/70" style={{ fontSize: '10px' }}>今日退款 NT${todayRefund.toLocaleString()}</p>}
           </div>
           <button onClick={signOut} className="text-white/70 hover:text-white p-2 ml-1">
             <LogOut size={16} />
