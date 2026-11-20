@@ -13,7 +13,9 @@ export default function SettingsPage() {
     sender_postal_code:     '',
     sender_address:         '',
     enabled_payment_methods: DEFAULT_ENABLED_PAYMENT_METHODS,
+    cashier_quick_buttons:   [],
   })
+  const [products, setProducts] = useState([])   // 供快速鍵選商品（只能從商品管理選）
   const [loading, setSaving] = useState(false)
 
   useEffect(() => {
@@ -27,9 +29,31 @@ export default function SettingsPage() {
           sender_address:          data.sender_address     ?? '',
           enabled_payment_methods: data.enabled_payment_methods?.length
             ? data.enabled_payment_methods : DEFAULT_ENABLED_PAYMENT_METHODS,
+          cashier_quick_buttons:   Array.isArray(data.cashier_quick_buttons) ? data.cashier_quick_buttons : [],
         })
       })
+    supabase.from('products').select('id, name, barcode, price, is_available')
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => setProducts(data ?? []))
   }, [])
+
+  // 快速鍵固定 7 格；未選商品的格子不會顯示在收銀台
+  const QUICK_SLOTS = 7
+  function quickSlot(i) { return form.cashier_quick_buttons[i] ?? { label: '', product_id: '', product_name: '' } }
+  function setQuickSlot(i, patch) {
+    setForm(f => {
+      const arr = Array.from({ length: QUICK_SLOTS }, (_, k) => f.cashier_quick_buttons[k] ?? { label: '', product_id: '', product_name: '' })
+      arr[i] = { ...arr[i], ...patch }
+      return { ...f, cashier_quick_buttons: arr }
+    })
+  }
+  function pickQuickProduct(i, productId) {
+    const prod = products.find(p => p.id === productId)
+    const cur = quickSlot(i)
+    // 名稱還沒自訂（空白或等於舊商品名）時，自動帶入商品名，之後可自行改
+    const autoLabel = !cur.label || cur.label === cur.product_name
+    setQuickSlot(i, { product_id: productId, product_name: prod?.name ?? '', ...(autoLabel ? { label: prod?.name ?? '' } : {}) })
+  }
 
   function set(key, val) { setForm(f => ({ ...f, [key]: val })) }
 
@@ -118,6 +142,38 @@ export default function SettingsPage() {
               </button>
             )
           })}
+        </div>
+
+        {/* 收銀台快速鍵 */}
+        <div className="card p-5 space-y-3">
+          <h2 className="font-bold text-stone-900 border-b border-stone-100 pb-2">
+            ⚡ 現場收銀台快速鍵（7 格）
+          </h2>
+          <p className="text-xs text-stone-400">
+            設定後會出現在收銀台上方，按一下就加入 1 件。商品只能從「商品管理」選；名稱可自訂（太長會被截斷，建議 4～6 字）。沒選商品的格子不會顯示。
+          </p>
+          {Array.from({ length: QUICK_SLOTS }, (_, i) => {
+            const slot = quickSlot(i)
+            const missing = slot.product_id && !products.some(p => p.id === slot.product_id)
+            return (
+              <div key={i} className="grid grid-cols-5 gap-2 items-center">
+                <span className="text-xs font-bold text-stone-400 col-span-5 -mb-1">快速鍵 {i + 1}</span>
+                <input className="input col-span-2" value={slot.label} placeholder="按鈕名稱"
+                  onChange={e => setQuickSlot(i, { label: e.target.value })} />
+                <select className="input col-span-3" value={slot.product_id || ''}
+                  onChange={e => pickQuickProduct(i, e.target.value)}>
+                  <option value="">（不使用）</option>
+                  {missing && <option value={slot.product_id}>⚠ 商品已不存在：{slot.product_name}</option>}
+                  {products.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}　NT${p.price}{p.is_available ? '' : '（已下架）'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )
+          })}
+          <p className="text-xs text-stone-400">改完請按右上角「儲存設定」，收銀台約 1 分鐘內自動更新（或重新整理）。</p>
         </div>
 
         {/* 寄件人資訊 */}

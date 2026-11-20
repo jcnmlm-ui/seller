@@ -41,6 +41,7 @@ export default function CashierPage() {
   const [redeemMode, setRedeemMode] = useState(false)  // 「預購領取滿額贈」：沒有購買商品，只拿其他通路訂單來領贈品
   const [redeemCount, setRedeemCount] = useState(0)    // 今日領贈品筆數
   const [perOrderLimit, setPerOrderLimit] = useState(null)   // 每單限購（只限逐日釋放商品）；null＝不限
+  const [quickButtons, setQuickButtons] = useState([])       // 快速鍵 [{ label, product_id, product_name }]，後台系統設定可改
   const merge = useMergeChannel()                 // 合併其他通路訂單（共用元件）
   const inputRef = useRef(null)
   const { signOut } = useAuth()
@@ -53,7 +54,17 @@ export default function CashierPage() {
     let alive = true
     const loadLimit = () => fetchPerOrderLimit().then(n => { if (alive) setPerOrderLimit(n) })
     loadLimit()
-    const t = setInterval(loadLimit, 60000)
+    // 快速鍵：開頁讀一次，之後每 60 秒更新（後台改設定不用重新整理）
+    const loadQuick = async () => {
+      try {
+        const { data } = await supabase.from('settings').select('cashier_quick_buttons').eq('id', 'main').maybeSingle()
+        if (alive && Array.isArray(data?.cashier_quick_buttons)) {
+          setQuickButtons(data.cashier_quick_buttons.filter(b => b?.product_id))
+        }
+      } catch { /* 欄位尚未建立（沒跑 24 號 SQL）就不顯示快速鍵 */ }
+    }
+    loadQuick()
+    const t = setInterval(() => { loadLimit(); loadQuick() }, 60000)
     return () => { alive = false; clearInterval(t) }
   }, [])
 
@@ -118,20 +129,23 @@ export default function CashierPage() {
       return
     }
 
-    const p = products[0]
+    await addProductChecked(products[0])
+  }
 
-    // 每單限購（只限逐日釋放商品）：刷讀當下重新讀一次設定，超過就擋下、不加入
+  // 刷條碼與快速鍵共用：每單限購檢查 → 加入購物車 → 現場庫存提醒
+  async function addProductChecked(p) {
+    // 每單限購（只限逐日釋放商品）：加入當下重新讀一次設定，超過就擋下、不加入
     const limit = await fetchPerOrderLimit()
     setPerOrderLimit(limit)
     const prevQty = cartItems.find(i => i.id === p.id)?.qty ?? 0
     if (p.release_enabled && limit != null && prevQty + 1 > limit) {
-      toast(`「${p.name}」每單限購 ${limit} 件，已達上限，無法再刷讀`, 'error', 5000)
+      toast(`「${p.name}」每單限購 ${limit} 件，已達上限，無法再加入`, 'error', 5000)
       inputRef.current?.focus()
       return
     }
 
-    // 現場庫存提醒（只警告、不阻擋）：以「刷入後購物車數量」計算剩餘
-    const newQty = (cartItems.find(i => i.id === p.id)?.qty ?? 0) + 1
+    // 現場庫存提醒（只警告、不阻擋）：以「加入後購物車數量」計算剩餘
+    const newQty = prevQty + 1
     const st = boothStockState(p.booth_stock, p.booth_low_alert, newQty)
     addToCart(p)
     if (st) {
@@ -141,6 +155,26 @@ export default function CashierPage() {
         'warning', 6000)
     }
     inputRef.current?.focus()
+  }
+
+  // 快速鍵：依 product_id 取最新商品資料（價格、上下架、庫存），再走同一套檢查
+  async function handleQuickAdd(btn) {
+    const { data: p, error } = await supabase
+      .from('products')
+      .select('id, name, barcode, price, stamp_amount, stock, is_available, booth_stock, booth_low_alert, release_enabled')
+      .eq('id', btn.product_id)
+      .maybeSingle()
+    if (error || !p) {
+      toast(`快速鍵「${btn.label || btn.product_name}」對應的商品已不存在，請到系統設定更新`, 'error', 5000)
+      inputRef.current?.focus()
+      return
+    }
+    if (!p.is_available) {
+      toast(`「${p.name}」目前已下架，無法加入`, 'error')
+      inputRef.current?.focus()
+      return
+    }
+    await addProductChecked(p)
   }
 
   function addToCart(product) {
@@ -352,11 +386,21 @@ export default function CashierPage() {
 
       {/* ── Header ── */}
       <header className="flex-shrink-0 bg-stone-900 text-white px-5 py-3 flex items-center justify-between">
-        <div>
+        <div className="flex-shrink-0">
           <h1 className="font-black text-base leading-tight">{STORE.name}</h1>
           <p className="text-xs text-stone-400">現場收銀台</p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* 快速加入商品（後台「系統設定」設定名稱與商品） */}
+        <div className="flex-1 min-w-0 flex items-center gap-1.5 mx-4">
+          {quickButtons.map((b, i) => (
+            <button key={i} type="button" onClick={() => handleQuickAdd(b)}
+              title={b.product_name || b.label}
+              className="flex-1 min-w-0 max-w-[120px] truncate text-xs font-semibold text-white bg-stone-700 hover:bg-red-500 active:scale-95 border border-stone-600 rounded-lg px-2 py-2 transition-colors">
+              {b.label || b.product_name}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
           <Link to="/booth" title="快速鍵 F3"
             className="flex items-center gap-1.5 text-stone-300 hover:text-white text-xs border border-stone-700 hover:border-stone-500 rounded-lg px-3 py-2 transition-colors">
             攤位收款
