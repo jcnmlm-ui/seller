@@ -28,6 +28,8 @@ async function fetchPerOrderLimit() {
   } catch { return null }
 }
 
+const PRODUCT_COLS = 'id, name, barcode, price, stamp_amount, stock, is_available, booth_stock, booth_low_alert, release_enabled'
+
 export default function CashierPage() {
   const navigate = useNavigate()
   const enabledPayMethods = useEnabledPaymentMethods()
@@ -41,6 +43,7 @@ export default function CashierPage() {
   const [redeemMode, setRedeemMode] = useState(false)  // 「預購領取滿額贈」：沒有購買商品，只拿其他通路訂單來領贈品
   const [redeemCount, setRedeemCount] = useState(0)    // 今日領贈品筆數
   const [perOrderLimit, setPerOrderLimit] = useState(null)   // 每單限購（只限逐日釋放商品）；null＝不限
+  const [quickProducts, setQuickProducts] = useState({})   // 快速鍵商品資料快取 { [product_id]: 商品列 }，按下去不用再等網路
   const [quickButtons, setQuickButtons] = useState([])       // 快速鍵 [{ label, product_id, product_name }]，後台系統設定可改
   const merge = useMergeChannel()                 // 合併其他通路訂單（共用元件）
   const inputRef = useRef(null)
@@ -59,7 +62,12 @@ export default function CashierPage() {
       try {
         const { data } = await supabase.from('settings').select('cashier_quick_buttons').eq('id', 'main').maybeSingle()
         if (alive && Array.isArray(data?.cashier_quick_buttons)) {
-          setQuickButtons(data.cashier_quick_buttons.filter(b => b?.product_id))
+          const btns = data.cashier_quick_buttons.filter(b => b?.product_id)
+          setQuickButtons(btns)
+          if (btns.length) {
+            const { data: prods } = await supabase.from('products').select(PRODUCT_COLS).in('id', btns.map(b => b.product_id))
+            if (alive && prods) setQuickProducts(Object.fromEntries(prods.map(p => [p.id, p])))
+          }
         }
       } catch { /* 欄位尚未建立（沒跑 24 號 SQL）就不顯示快速鍵 */ }
     }
@@ -115,10 +123,11 @@ export default function CashierPage() {
     if (!code) return
     setBarcodeInput('')
 
-    // 查詢商品（用條碼）
+    // 查詢商品（用條碼）；同時讀每單限購設定，兩個查詢一起跑
+    const limitPromise = fetchPerOrderLimit()
     const { data: products, error } = await supabase
       .from('products')
-      .select('id, name, barcode, price, stamp_amount, stock, is_available, booth_stock, booth_low_alert, release_enabled')
+      .select(PRODUCT_COLS)
       .eq('barcode', code)
       .eq('is_available', true)
       .limit(1)
@@ -129,13 +138,13 @@ export default function CashierPage() {
       return
     }
 
-    await addProductChecked(products[0])
+    await addProductChecked(products[0], await limitPromise)
   }
 
   // 刷條碼與快速鍵共用：每單限購檢查 → 加入購物車 → 現場庫存提醒
-  async function addProductChecked(p) {
-    // 每單限購（只限逐日釋放商品）：加入當下重新讀一次設定，超過就擋下、不加入
-    const limit = await fetchPerOrderLimit()
+  // limit：呼叫端已讀好的每單限購數（null＝不限）；快速鍵用 60 秒內更新的快取，所以免等網路
+  async function addProductChecked(p, limit) {
+    // 每單限購（只限逐日釋放商品）：超過就擋下、不加入
     setPerOrderLimit(limit)
     const prevQty = cartItems.find(i => i.id === p.id)?.qty ?? 0
     if (p.release_enabled && limit != null && prevQty + 1 > limit) {
@@ -157,24 +166,24 @@ export default function CashierPage() {
     inputRef.current?.focus()
   }
 
-  // 快速鍵：依 product_id 取最新商品資料（價格、上下架、庫存），再走同一套檢查
+  // 快速鍵：用已載入的商品快取即時加入（每 60 秒自動更新價格／上下架）；快取沒有才退回查資料庫
   async function handleQuickAdd(btn) {
-    const { data: p, error } = await supabase
-      .from('products')
-      .select('id, name, barcode, price, stamp_amount, stock, is_available, booth_stock, booth_low_alert, release_enabled')
-      .eq('id', btn.product_id)
-      .maybeSingle()
-    if (error || !p) {
-      toast(`快速鍵「${btn.label || btn.product_name}」對應的商品已不存在，請到系統設定更新`, 'error', 5000)
-      inputRef.current?.focus()
-      return
+    let p = quickProducts[btn.product_id]
+    if (!p) {
+      const { data, error } = await supabase.from('products').select(PRODUCT_COLS).eq('id', btn.product_id).maybeSingle()
+      if (error || !data) {
+        toast(`快速鍵「${btn.label || btn.product_name}」對應的商品已不存在，請到系統設定更新`, 'error', 5000)
+        inputRef.current?.focus()
+        return
+      }
+      p = data
     }
     if (!p.is_available) {
       toast(`「${p.name}」目前已下架，無法加入`, 'error')
       inputRef.current?.focus()
       return
     }
-    await addProductChecked(p)
+    await addProductChecked(p, perOrderLimit)
   }
 
   function addToCart(product) {
