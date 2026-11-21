@@ -295,8 +295,10 @@ export default function OrderDashboard() {
   const loadOrders = useCallback(async () => {
     const { data } = await supabase
       .from('orders').select('*')
-      .or('source.is.null,source.neq.gift_redeem')   // 「預購領取滿額贈」的紀錄不是出貨單
-      .order('created_at', { ascending: false }).limit(200)
+      // 只撈需要出貨的預購單：「預購領取滿額贈」「現場收銀台銷售」都不是出貨單
+      // （現場銷售一天可達數百筆，若混進來會把預購單擠出 limit 之外，導致待揀貨少顯示）
+      .or('source.is.null,and(source.neq.gift_redeem,source.neq.booth_cashier)')
+      .order('created_at', { ascending: false }).limit(500)
     setOrders(data ?? [])
   }, [])
 
