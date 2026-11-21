@@ -562,7 +562,7 @@ export default function CashierPage() {
         {/* ══ 右欄：付款 ══════════════════════════════════════ */}
         <div className="flex flex-col overflow-y-auto bg-stone-50" style={{ width: '50%' }}>
           {cartItems.length === 0 && redeemMode ? (
-            <div className="flex flex-col h-full px-8 py-6 gap-5">
+            <div className="flex flex-col h-full px-8 py-4 gap-3">
               <div>
                 <p className="font-black text-lg text-stone-800">🎁 預購領取滿額贈</p>
                 <p className="text-xs text-stone-400 mt-0.5">客人沒有在現場購買，只用其他通路的訂單合併計算滿額領贈品</p>
@@ -616,18 +616,18 @@ export default function CashierPage() {
 
               {/* 付款方式 */}
               <div>
-                <p className="text-xs font-semibold text-stone-400 tracking-widest mb-3">付款方式</p>
+                <p className="text-xs font-semibold text-stone-400 tracking-widest mb-1.5">付款方式</p>
                 <div className="flex gap-3">
                   {Object.entries(PAYMENT_LABELS)
                     .filter(([k]) => enabledPayMethods.includes(k))
                     .map(([k, v]) => (
                     <button key={k} type="button" onClick={() => setPayMethod(k)}
-                      className={`flex-1 py-4 rounded-2xl text-sm font-bold border-2 transition-all
+                      className={`flex-1 py-2 rounded-2xl text-base font-bold border-2 transition-all flex items-center justify-center gap-2
                         ${payMethod === k
                           ? 'bg-stone-900 border-stone-900 text-white shadow-lg scale-105'
                           : 'bg-white border-stone-200 text-stone-600 hover:border-stone-400'
                         }`}>
-                      <span className="block text-xl mb-1">{v.slice(0,2)}</span>
+                      <span className="text-xl">{v.slice(0,2)}</span>
                       {v.slice(2)}
                     </button>
                   ))}
@@ -643,25 +643,25 @@ export default function CashierPage() {
                 const stampTotal = cartItems.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.qty, 0)
                 if (payMethod === 'cash' || stampTotal <= 0) return null
                 return (
-                  <div className="rounded-2xl border-2 border-amber-400 bg-amber-50 px-5 py-4 flex items-start gap-3 animate-pulse">
+                  <div className="rounded-2xl border-2 border-amber-400 bg-amber-50 px-4 py-2.5 flex items-center gap-3 animate-pulse">
                     <span className="text-2xl flex-shrink-0">⚠️</span>
                     <div className="flex-1 min-w-0">
                       <p className="font-black text-amber-800 text-base leading-snug">
-                        本筆含個人化郵票商品，郵票金額須收現金！
+                        含郵票商品，郵票金額須另收現金！
                       </p>
-                      <p className="text-amber-700 text-sm mt-1">
-                        請向客人說明：{PAYMENT_LABELS[payMethod]?.slice(2)}僅能刷發票金額，郵票金額須另外收現金。
+                      <p className="text-amber-700 text-sm mt-0.5">
+                        請向客人說明：{PAYMENT_LABELS[payMethod]?.slice(2)}僅能刷發票金額
                       </p>
                     </div>
                     {/* 兩個金額大字標示，收銀時一眼看到刷多少、另收多少 */}
                     <div className="flex items-stretch gap-2 flex-shrink-0">
                       <div className="rounded-xl border-2 border-amber-400 bg-white px-3 py-1.5 text-center">
                         <p className="text-xs font-bold text-amber-700">{PAYMENT_LABELS[payMethod]?.slice(2)}刷</p>
-                        <p className="text-2xl font-black text-stone-800 leading-tight">NT${(total - stampTotal).toLocaleString()}</p>
+                        <p className="text-lg font-black text-stone-800 leading-tight">NT${(total - stampTotal).toLocaleString()}</p>
                       </div>
                       <div className="rounded-xl bg-red-600 px-4 py-1.5 text-center shadow">
                         <p className="text-xs font-bold text-red-100">另收現金</p>
-                        <p className="text-3xl font-black text-white leading-tight">NT${stampTotal.toLocaleString()}</p>
+                        <p className="text-2xl font-black text-white leading-tight">NT${stampTotal.toLocaleString()}</p>
                       </div>
                     </div>
                   </div>
