@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         郵政商城 訂單查詢／改訂單處理中（C1910）
 // @namespace    topmall-c1910
-// @version      1.6.2
+// @version      1.6.3
 // @description  在商店後台用你自己的登入狀態查訂單，並可把「已付款＋未出貨」的出貨單改成訂單處理中
 // @match        https://topmall.post.gov.tw/*
 // @match        https://jcnmlm-ui.github.io/seller/*
@@ -43,6 +43,7 @@
     '事件驗證', 'ValidateEvent', '無法驗證'];
   var EXPIRED_MSG = '登入已過期，請重新登入後台';
   var TIMEOUT_MS = 15000;
+  var ORDER_PREFIX = '60208';   // 輸入「後四碼」時自動補在前面；換檔期只要改這一行
 
   function SessionExpired() { this.name = 'SessionExpired'; }
   function LookupErr(msg) { this.name = 'LookupErr'; this.message = msg; }
@@ -454,7 +455,7 @@
   }
 
   // ---------- panel ----------
-  var busy = false, panel, ta, out, btnQ, btnP, kaEl, host, bodyEl, tog;
+  var busy = false, panel, ta, pv, out, btnQ, btnP, kaEl, host, bodyEl, tog;
   function el(tag, css, text) { var e = document.createElement(tag); if (css) e.style.cssText = css; if (text) e.textContent = text; return e; }
 
   function buildPanel() {
@@ -469,7 +470,7 @@
     bodyEl = el('div', 'padding:8px');
     head.onclick = function () { setCollapsed(bodyEl.style.display !== 'none'); };
     ta = el('textarea', 'display:block;width:100%;box-sizing:border-box;height:64px;font:22px monospace;resize:vertical');
-    ta.placeholder = '貼上單號，可多筆（空白、逗號或換行分隔）';
+    ta.placeholder = '輸入單號後四碼（自動補 ' + ORDER_PREFIX + '），可多筆；也可貼完整單號';
     var st = document.createElement('style');   // 提示文字 18px（輸入文字維持 22px）
     st.textContent = 'textarea::placeholder{font-size:18px;color:#888}';
     panel.appendChild(st);
@@ -492,11 +493,14 @@
         else if (k === '下一筆') { if (ta.value && !/\s$/.test(ta.value)) ta.value += '\n'; }
         else ta.value += k;
         ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); ta.scrollTop = ta.scrollHeight;
+        updatePreview();
       };
       pad.appendChild(b);
     });
     out = el('div', 'max-height:260px;overflow:auto;font:16px monospace;white-space:pre-wrap;user-select:text');
-    bodyEl.appendChild(ta); bodyEl.appendChild(pad); bodyEl.appendChild(row); bodyEl.appendChild(out);
+    pv = el('div', 'min-height:22px;margin-top:4px;font:15px/1.4 monospace;color:#0a7d3b;word-break:break-all');
+    ta.addEventListener('input', updatePreview);
+    bodyEl.appendChild(ta); bodyEl.appendChild(pv); bodyEl.appendChild(pad); bodyEl.appendChild(row); bodyEl.appendChild(out);
     panel.appendChild(head); panel.appendChild(bodyEl);
     // Shadow DOM keeps the site's CSS from breaking the panel layout.
     host = el('div', 'all:initial;position:fixed;right:12px;bottom:12px;z-index:2147483647');
@@ -514,19 +518,38 @@
   }
   function saveOut() { try { sessionStorage.setItem('tmo_out', out.innerHTML); } catch (e) {} }
 
-  function parseNumbers(text) {
-    var seen = {}, list = [];
+  // 規則：每一段數字（用空白／逗號／換行分隔）
+  //   4 位數  → 自動補上 ORDER_PREFIX（只打後四碼）
+  //   6–12 位 → 當完整單號，原樣使用（可直接貼上完整單號）
+  //   其他位數 → 視為打錯，不查詢，並提示
+  // 多筆時每筆之間用「下一筆」鍵／Enter／空白／逗號分開即可；相同單號只查一次
+  function parseInput(text) {
+    var seen = {}, list = [], bad = [];
     (text.match(/\d+/g) || []).forEach(function (n) {
-      if (n.length >= 6 && n.length <= 12 && !seen[n]) { seen[n] = 1; list.push(n); }
+      var full = n.length === 4 ? ORDER_PREFIX + n : n;
+      if (full.length >= 6 && full.length <= 12) { if (!seen[full]) { seen[full] = 1; list.push(full); } }
+      else bad.push(n);
     });
-    return list;
+    return { list: list, bad: bad };
+  }
+  function parseNumbers(text) { return parseInput(text).list; }
+
+  // 輸入框下方即時顯示「將查詢哪些完整單號」，送出前可先核對
+  function updatePreview() {
+    if (!pv) return;
+    var r = parseInput(ta.value);
+    var t = r.list.length ? '將查詢：' + r.list.join('、') : '';
+    if (r.bad.length) t += (t ? '　' : '') + '⚠ 位數不符將略過：' + r.bad.join('、');
+    pv.textContent = t;
+    pv.style.color = r.bad.length ? '#b00' : '#0a7d3b';
   }
 
   async function go(doSave) {
     if (busy) return;
-    var nums = parseNumbers(ta.value);
-    if (!nums.length) { addLine('', '請輸入 6–12 位數的單號', '#b00'); return; }
-    ta.value = '';
+    var parsed = parseInput(ta.value), nums = parsed.list;
+    if (!nums.length) { addLine('', '請輸入單號後四碼（或 6–12 位完整單號）', '#b00'); return; }
+    parsed.bad.forEach(function (b) { addLine(b, '位數不符，已略過（後四碼請輸入 4 位數）', '#b00'); });
+    ta.value = ''; updatePreview();
     busy = true; btnQ.disabled = btnP.disabled = true;
     sendBatch('start', nums.length);
     try {
