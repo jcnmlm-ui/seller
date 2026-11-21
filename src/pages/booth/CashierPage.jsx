@@ -645,13 +645,24 @@ export default function CashierPage() {
                 return (
                   <div className="rounded-2xl border-2 border-amber-400 bg-amber-50 px-5 py-4 flex items-start gap-3 animate-pulse">
                     <span className="text-2xl flex-shrink-0">⚠️</span>
-                    <div>
+                    <div className="flex-1 min-w-0">
                       <p className="font-black text-amber-800 text-base leading-snug">
-                        本筆含個人化郵票商品，郵票金額 NT${stampTotal.toLocaleString()} 須收現金！
+                        本筆含個人化郵票商品，郵票金額須收現金！
                       </p>
-                      <p className="text-amber-600 text-sm mt-1">
-                        請向客人說明：{PAYMENT_LABELS[payMethod]?.slice(2)}僅能刷「NT${(total - stampTotal).toLocaleString()}」，郵票金額須另收現金 NT${stampTotal.toLocaleString()}。
+                      <p className="text-amber-700 text-sm mt-1">
+                        請向客人說明：{PAYMENT_LABELS[payMethod]?.slice(2)}僅能刷發票金額，郵票金額須另外收現金。
                       </p>
+                    </div>
+                    {/* 兩個金額大字標示，收銀時一眼看到刷多少、另收多少 */}
+                    <div className="flex items-stretch gap-2 flex-shrink-0">
+                      <div className="rounded-xl border-2 border-amber-400 bg-white px-3 py-1.5 text-center">
+                        <p className="text-xs font-bold text-amber-700">{PAYMENT_LABELS[payMethod]?.slice(2)}刷</p>
+                        <p className="text-2xl font-black text-stone-800 leading-tight">NT${(total - stampTotal).toLocaleString()}</p>
+                      </div>
+                      <div className="rounded-xl bg-red-600 px-4 py-1.5 text-center shadow">
+                        <p className="text-xs font-bold text-red-100">另收現金</p>
+                        <p className="text-3xl font-black text-white leading-tight">NT${stampTotal.toLocaleString()}</p>
+                      </div>
                     </div>
                   </div>
                 )

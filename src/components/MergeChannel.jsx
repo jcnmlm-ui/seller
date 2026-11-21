@@ -312,7 +312,7 @@ export function GiftCard({ tiers, invoice, mergedSum = 0, children }) {
     <div className="rounded-2xl border border-red-200 bg-gradient-to-r from-red-50 to-orange-50 px-5 py-4">
       <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
         <p className="text-sm font-black text-red-700">🎁 滿額贈品</p>
-        <p className="text-xs text-stone-500">
+        <p className="text-base text-stone-500">
           發票 NT${invoice.toLocaleString()}
           {mergedSum > 0 && <> ＋ 其他通路 NT${mergedSum.toLocaleString()}</>}
           {' '}＝ <b className="text-stone-800">NT${base.toLocaleString()}</b>
