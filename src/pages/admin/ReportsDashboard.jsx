@@ -30,10 +30,24 @@ const fmt  = n  => `NT$${Number(n).toLocaleString()}`
 const pct  = (a, b) => b ? Math.round(a / b * 100) : 0
 const dstr = d => d?.toLocaleDateString('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit' }) ?? ''
 
+// 資料庫單次最多回 1000 筆，所以要分頁撈；build 每頁都要重新建立查詢
+const PAGE = 1000
+async function fetchAllPages(build) {
+  const all = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build().range(from, from + PAGE - 1)
+    if (error) throw error
+    all.push(...(data ?? []))
+    if (!data || data.length < PAGE) break
+  }
+  return all
+}
+
 export default function ReportsDashboard() {
   const [orders,  setOrders]  = useState([])
   const [items,   setItems]   = useState([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const [preset,  setPreset]  = useState('本月')
   const [custom,  setCustom]  = useState({ start: '', end: '' })
   const [useCustom, setUseCustom] = useState(false)
@@ -45,7 +59,7 @@ export default function ReportsDashboard() {
   function getRange() {
     if (useCustom && custom.start) {
       return {
-        s: new Date(custom.start),
+        s: new Date(custom.start + 'T00:00:00'),   // 加 T00:00:00 才是台灣當地午夜；否則會被當成 UTC，漏掉開始日 00:00～08:00 的訂單
         e: custom.end ? new Date(custom.end + 'T23:59:59') : new Date(),
       }
     }
@@ -53,30 +67,41 @@ export default function ReportsDashboard() {
   }
 
   const loadData = useCallback(async () => {
-    setLoading(true)
+    setLoading(true); setLoadError('')
     const { s, e } = getRange()
-    let q = supabase
-      .from('orders')
-      .select('*')
-      .not('status', 'in', '(pending,refunded,cancelled)')
-      .order('created_at', { ascending: false })
-    if (sourceFilter !== 'all') q = q.eq('source', sourceFilter)
-    if (s) q = q.gte('created_at', s.toISOString())
-    if (e) q = q.lte('created_at', e.toISOString())
+    try {
+      // 訂單：分頁撈（超過 1000 筆也不會被截斷）；加 id 排序確保翻頁不重複、不漏
+      const allData = await fetchAllPages(() => {
+        let q = supabase
+          .from('orders')
+          .select('*')
+          .not('status', 'in', '(pending,refunded,cancelled)')
+          .order('created_at', { ascending: false })
+          .order('id')
+        if (sourceFilter !== 'all') q = q.eq('source', sourceFilter)
+        if (s) q = q.gte('created_at', s.toISOString())
+        if (e) q = q.lte('created_at', e.toISOString())
+        return q
+      })
+      // 「預購領取滿額贈」沒有銷售金額，獨立統計，不混進筆數／營業額
+      const oData = allData.filter(o => o.source !== 'gift_redeem')
+      setRedeems(allData.filter(o => o.source === 'gift_redeem'))
+      setOrders(oData)
 
-    const { data: allData } = await q
-    // 「預購領取滿額贈」沒有銷售金額，獨立統計，不混進筆數／營業額
-    const oData = (allData ?? []).filter(o => o.source !== 'gift_redeem')
-    setRedeems((allData ?? []).filter(o => o.source === 'gift_redeem'))
-    setOrders(oData)
-
-    if (oData.length) {
-      const { data: iData } = await supabase
-        .from('order_items').select('*')
-        .in('order_id', oData.map(o => o.id))
-      setItems(iData ?? [])
-    } else {
-      setItems([])
+      // 商品明細：訂單 ID 一次塞進網址會太長（888 筆就失敗），改每 100 筆一批、4 批同時撈
+      const ids = oData.map(o => o.id)
+      const chunks = []
+      for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100))
+      const iData = []
+      for (let i = 0; i < chunks.length; i += 4) {
+        const parts = await Promise.all(chunks.slice(i, i + 4).map(ch =>
+          fetchAllPages(() => supabase.from('order_items').select('*').in('order_id', ch).order('id'))))
+        parts.forEach(pt => iData.push(...pt))
+      }
+      setItems(iData)
+    } catch (err) {
+      console.error('銷售報表載入失敗', err)
+      setLoadError('資料載入失敗（' + (err?.message || '未知錯誤') + '），目前顯示的數字可能不完整，請按「重新整理」再試一次')
     }
     setLoading(false)
   }, [preset, useCustom, custom, sourceFilter])
@@ -291,6 +316,9 @@ export default function ReportsDashboard() {
             </div>
           ) : (
             <>
+              {loadError && (
+                <div className="no-print rounded-xl border border-red-300 bg-red-50 text-red-700 text-sm font-semibold px-4 py-3">⚠ {loadError}</div>
+              )}
               {/* 期間標示 */}
               <div className="flex items-center justify-between no-print">
                 <p className="text-sm text-stone-500">

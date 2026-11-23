@@ -36,6 +36,7 @@ export default function CashierPage() {
   const [cartItems, setCartItems]   = useState([])   // [{ id, name, barcode, price, qty }]
   const [barcodeInput, setBarcodeInput] = useState('')
   const [payMethod, setPayMethod]   = useState('cash')
+  const [cashIn, setCashIn]         = useState('')    // 現金：客人給的金額（空白＝沒輸入，照舊直接收款）
   const [confirming, setConfirming] = useState(false)
   const [todayStats, setTodayStats] = useState({ count: 0, total: 0 })
   const [lastSale, setLastSale]     = useState(null)  // 上一筆成功紀錄
@@ -47,6 +48,7 @@ export default function CashierPage() {
   const [quickButtons, setQuickButtons] = useState([])       // 快速鍵 [{ label, product_id, product_name }]，後台系統設定可改
   const merge = useMergeChannel()                 // 合併其他通路訂單（共用元件）
   const inputRef = useRef(null)
+  const cashRef = useRef(null)
   const { signOut } = useAuth()
 
   useEffect(() => {
@@ -229,6 +231,9 @@ export default function CashierPage() {
   }
 
   const total = cartItems.reduce((s, i) => s + i.price * i.qty, 0)
+  useEffect(() => { setCashIn('') }, [total, payMethod])
+  const cashNum = cashIn === '' ? null : Number(cashIn)
+  const changeAmt = cashNum === null ? null : cashNum - total     // ≥0 找零；<0 還差多少
   // 滿額贈品：本次現場購買的發票金額（扣郵票）＋ 合併的其他通路金額
   const stampSum   = cartItems.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.qty, 0)
   const invoiceAmt = total - stampSum
@@ -297,6 +302,11 @@ export default function CashierPage() {
   // ── 確認收款 ─────────────────────────────────────────────
   async function handleConfirm() {
     if (cartItems.length === 0) { toast('購物車是空的', 'error'); return }
+    if (payMethod === 'cash' && changeAmt !== null && changeAmt < 0) {
+      toast(`客人給的金額不足，還差 NT$${(-changeAmt).toLocaleString()}`, 'error', 4000)
+      cashRef.current?.focus()
+      return
+    }
     setConfirming(true)
 
     try {
@@ -361,6 +371,8 @@ export default function CashierPage() {
         order_no: order.order_no,
         total,
         method: payMethod,
+        received: payMethod === 'cash' && cashNum !== null ? cashNum : null,   // 現金：客人給的金額
+        change:   payMethod === 'cash' && cashNum !== null ? cashNum - total : null,
         items: [...cartItems],
         gift: giftList.length ? giftText(giftList) : '',
         merged: merge.orders.length,
@@ -562,7 +574,7 @@ export default function CashierPage() {
         {/* ══ 右欄：付款 ══════════════════════════════════════ */}
         <div className="flex flex-col overflow-y-auto bg-stone-50" style={{ width: '50%' }}>
           {cartItems.length === 0 && redeemMode ? (
-            <div className="flex flex-col h-full px-8 py-4 gap-3">
+            <div className="flex flex-col h-full px-8 py-6 gap-5">
               <div>
                 <p className="font-black text-lg text-stone-800">🎁 預購領取滿額贈</p>
                 <p className="text-xs text-stone-400 mt-0.5">客人沒有在現場購買，只用其他通路的訂單合併計算滿額領贈品</p>
@@ -589,6 +601,14 @@ export default function CashierPage() {
                   <p className="text-sm text-stone-500 mb-3">
                     {lastSale.redeem ? '預購領取滿額贈' : PAYMENT_LABELS[lastSale.method]} · {lastSale.order_no}
                   </p>
+                  {lastSale.received != null && (
+                    <div className="mb-3 rounded-xl bg-green-50 border border-green-200 px-3 py-2">
+                      <p className="text-sm text-green-700">客人給 NT${lastSale.received.toLocaleString()}</p>
+                      <p className="text-3xl font-black text-green-700">
+                        {lastSale.change > 0 ? `找零 NT$${lastSale.change.toLocaleString()}` : '剛好，不用找零'}
+                      </p>
+                    </div>
+                  )}
                   <div className="text-xs text-stone-400 space-y-0.5">
                     {lastSale.items.map(i => (
                       <p key={i.id}>{i.name} ×{i.qty}</p>
@@ -612,7 +632,7 @@ export default function CashierPage() {
               </button>
             </div>
           ) : (
-            <div className="flex flex-col h-full px-8 py-6 gap-5">
+            <div className="flex flex-col h-full px-8 py-4 gap-3">
 
               {/* 付款方式 */}
               <div>
@@ -667,6 +687,56 @@ export default function CashierPage() {
                   </div>
                 )
               })()}
+
+              {/* 現金：輸入客人給的金額，自動算找零 */}
+              {payMethod === 'cash' && (
+                <div className="rounded-2xl border-2 border-stone-200 bg-white px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-bold text-stone-500 whitespace-nowrap">客人給</span>
+                    <div className="relative flex-1 min-w-0">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-bold">NT$</span>
+                      <input ref={cashRef} type="number" inputMode="numeric" min="0" step="1"
+                        value={cashIn}
+                        onChange={e => setCashIn(e.target.value.replace(/[^\d]/g, '').slice(0, 6))}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            // 只把游標交還條碼欄（再按一次 Enter 才確認收款）；避免誤掃條碼進這欄時直接成交
+                            e.preventDefault()
+                            inputRef.current?.focus()
+                          } else if (e.key === 'Escape') { setCashIn(''); inputRef.current?.focus() }
+                        }}
+                        placeholder="輸入收款金額"
+                        className="w-full rounded-xl border-2 border-stone-200 focus:border-red-400 outline-none pl-12 pr-3 py-2 text-2xl font-black text-stone-800" />
+                    </div>
+                    <div className="text-right min-w-[170px]">
+                      {changeAmt === null ? (
+                        <p className="text-sm text-stone-400">輸入後顯示找零</p>
+                      ) : changeAmt >= 0 ? (
+                        <>
+                          <p className="text-xs font-bold text-green-700">{changeAmt === 0 ? '剛好' : '應找零'}</p>
+                          <p className="text-3xl font-black text-green-600 leading-tight">NT${changeAmt.toLocaleString()}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xs font-bold text-red-600">金額不足，還差</p>
+                          <p className="text-3xl font-black text-red-600 leading-tight">NT${(-changeAmt).toLocaleString()}</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs text-stone-400 mt-1.5">輸入後按 Enter 回到條碼欄，再按一次 Enter 確認收款；Esc 清除金額</p>
+                  <div className="flex gap-2 mt-2">
+                    {[{ label: '剛好', v: total }, { label: '100', v: 100 }, { label: '500', v: 500 }, { label: '1000', v: 1000 }, { label: '2000', v: 2000 }]
+                      .map(b => (
+                      <button key={b.label} type="button"
+                        onClick={() => { setCashIn(String(b.v)); cashRef.current?.focus() }}
+                        className="flex-1 py-1.5 rounded-lg border border-stone-300 bg-stone-50 hover:bg-red-50 hover:border-red-300 text-sm font-bold text-stone-600">
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* 確認按鈕 */}
               <button
