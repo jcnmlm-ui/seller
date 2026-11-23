@@ -232,13 +232,15 @@ export default function CashierPage() {
 
   const total = cartItems.reduce((s, i) => s + i.price * i.qty, 0)
   useEffect(() => { setCashIn('') }, [total, payMethod])
-  const cashNum = cashIn === '' ? null : Number(cashIn)
-  const changeAmt = cashNum === null ? null : cashNum - total     // ≥0 找零；<0 還差多少
   // 滿額贈品：本次現場購買的發票金額（扣郵票）＋ 合併的其他通路金額
   const stampSum   = cartItems.reduce((s, i) => s + (Number(i.stamp_amount) || 0) * i.qty, 0)
   const invoiceAmt = total - stampSum
   const giftBase   = invoiceAmt + merge.sum
   const giftList   = computeGifts(tiers, giftBase).gifts
+  // 應收現金：現金付款＝全額；刷卡等非現金但含郵票＝郵票金額（另收現金）；其他＝0
+  const cashDue   = payMethod === 'cash' ? total : Math.max(stampSum, 0)
+  const cashNum   = cashIn === '' ? null : Number(cashIn)
+  const changeAmt = cashNum === null || cashDue <= 0 ? null : cashNum - cashDue   // ≥0 找零；<0 還差多少
 
   // 寫入訂單；資料庫還沒執行 20 號 SQL（沒有 promo_gift_items）時只略過該欄，
   // 還沒執行 15 號 SQL（連 merged_orders／promo_gift 都沒有）時退回只存基本欄位，收款照常完成
@@ -302,7 +304,7 @@ export default function CashierPage() {
   // ── 確認收款 ─────────────────────────────────────────────
   async function handleConfirm() {
     if (cartItems.length === 0) { toast('購物車是空的', 'error'); return }
-    if (payMethod === 'cash' && changeAmt !== null && changeAmt < 0) {
+    if (changeAmt !== null && changeAmt < 0) {
       toast(`客人給的金額不足，還差 NT$${(-changeAmt).toLocaleString()}`, 'error', 4000)
       cashRef.current?.focus()
       return
@@ -371,8 +373,8 @@ export default function CashierPage() {
         order_no: order.order_no,
         total,
         method: payMethod,
-        received: payMethod === 'cash' && cashNum !== null ? cashNum : null,   // 現金：客人給的金額
-        change:   payMethod === 'cash' && cashNum !== null ? cashNum - total : null,
+        received: cashDue > 0 && cashNum !== null ? cashNum : null,   // 客人給的現金金額（現金付款＝全額；刷卡含郵票＝郵票那份）
+        change:   cashDue > 0 && cashNum !== null ? cashNum - cashDue : null,
         items: [...cartItems],
         gift: giftList.length ? giftText(giftList) : '',
         merged: merge.orders.length,
@@ -632,7 +634,8 @@ export default function CashierPage() {
               </button>
             </div>
           ) : (
-            <div className="flex flex-col h-full px-8 py-4 gap-3">
+            <div className="flex flex-col h-full min-h-0 px-8 py-4 gap-3">
+             <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 pr-1">
 
               {/* 付款方式 */}
               <div>
@@ -688,13 +691,15 @@ export default function CashierPage() {
                 )
               })()}
 
-              {/* 現金：輸入客人給的金額，自動算找零 */}
-              {payMethod === 'cash' && (
-                <div className="rounded-2xl border-2 border-stone-200 bg-white px-4 py-3">
+              {/* 現金：輸入客人給的金額，自動算找零（現金付款＝全額；刷卡含郵票＝郵票那份）*/}
+              {cashDue > 0 && (
+                <div className="rounded-2xl border-2 border-stone-200 bg-white px-4 py-2.5">
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold text-stone-500 whitespace-nowrap">客人給</span>
+                    <span className="text-sm font-bold text-stone-500 whitespace-nowrap leading-tight">
+                      客人給{payMethod !== 'cash' && <><br /><span className="text-xs text-red-600">現金 NT${cashDue.toLocaleString()}</span></>}
+                    </span>
                     <div className="relative flex-1 min-w-0">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-bold">NT$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-bold text-base">NT$</span>
                       <input ref={cashRef} type="number" inputMode="numeric" min="0" step="1"
                         value={cashIn}
                         onChange={e => setCashIn(e.target.value.replace(/[^\d]/g, '').slice(0, 6))}
@@ -706,43 +711,45 @@ export default function CashierPage() {
                           } else if (e.key === 'Escape') { setCashIn(''); inputRef.current?.focus() }
                         }}
                         placeholder="輸入收款金額"
-                        className="w-full rounded-xl border-2 border-stone-200 focus:border-red-400 outline-none pl-12 pr-3 py-2 text-2xl font-black text-stone-800" />
+                        className="w-full rounded-xl border-2 border-stone-200 focus:border-red-400 outline-none pl-12 pr-3 py-1.5 text-xl font-black text-stone-800" />
                     </div>
-                    <div className="text-right min-w-[170px]">
+                    <div className="text-right min-w-[150px] leading-tight">
                       {changeAmt === null ? (
                         <p className="text-sm text-stone-400">輸入後顯示找零</p>
                       ) : changeAmt >= 0 ? (
-                        <>
-                          <p className="text-xs font-bold text-green-700">{changeAmt === 0 ? '剛好' : '應找零'}</p>
-                          <p className="text-3xl font-black text-green-600 leading-tight">NT${changeAmt.toLocaleString()}</p>
-                        </>
+                        <p className="text-xl font-black text-green-600 whitespace-nowrap">
+                          <span className="text-sm font-bold text-green-700 mr-1">{changeAmt === 0 ? '剛好' : '找零'}</span>
+                          {changeAmt > 0 && <>NT${changeAmt.toLocaleString()}</>}
+                        </p>
                       ) : (
-                        <>
-                          <p className="text-xs font-bold text-red-600">金額不足，還差</p>
-                          <p className="text-3xl font-black text-red-600 leading-tight">NT${(-changeAmt).toLocaleString()}</p>
-                        </>
+                        <p className="text-xl font-black text-red-600 whitespace-nowrap">
+                          <span className="text-sm font-bold mr-1">還差</span>NT${(-changeAmt).toLocaleString()}
+                        </p>
                       )}
                     </div>
                   </div>
-                  <p className="text-xs text-stone-400 mt-1.5">輸入後按 Enter 回到條碼欄，再按一次 Enter 確認收款；Esc 清除金額</p>
                   <div className="flex gap-2 mt-2">
-                    {[{ label: '剛好', v: total }, { label: '100', v: 100 }, { label: '500', v: 500 }, { label: '1000', v: 1000 }, { label: '2000', v: 2000 }]
+                    {[{ label: '剛好', v: cashDue }, { label: '100', v: 100 }, { label: '500', v: 500 }, { label: '1000', v: 1000 }, { label: '2000', v: 2000 }]
                       .map(b => (
                       <button key={b.label} type="button"
                         onClick={() => { setCashIn(String(b.v)); cashRef.current?.focus() }}
-                        className="flex-1 py-1.5 rounded-lg border border-stone-300 bg-stone-50 hover:bg-red-50 hover:border-red-300 text-sm font-bold text-stone-600">
+                        className="flex-1 py-1 rounded-lg border border-stone-300 bg-stone-50 hover:bg-red-50 hover:border-red-300 text-sm font-bold text-stone-600">
                         {b.label}
                       </button>
                     ))}
                   </div>
+                  <p className="text-xs text-stone-400 mt-1">輸入後按 Enter 回條碼欄，再按一次 Enter 確認收款；Esc 清除</p>
                 </div>
               )}
+             </div>
 
+             {/* 固定在底部：確認收款＋實收資訊，不會被上方內容擠走 */}
+             <div className="flex-shrink-0 flex flex-col gap-3">
               {/* 確認按鈕 */}
               <button
                 onClick={handleConfirm}
                 disabled={confirming}
-                className="btn-primary w-full py-5 text-xl font-black rounded-2xl shadow-lg mt-auto"
+                className="btn-primary w-full py-5 text-xl font-black rounded-2xl shadow-lg"
               >
                 {confirming ? (
                   <span className="flex items-center justify-center gap-2">
@@ -772,6 +779,7 @@ export default function CashierPage() {
                   <p className="text-left text-xs text-stone-400">此筆為現場銷售，將直接記錄為「已送達」</p>
                 )
               })()}
+             </div>
             </div>
           )}
         </div>

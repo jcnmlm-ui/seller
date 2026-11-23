@@ -220,15 +220,18 @@ export function MergeChannelRow({ merge }) {
         <span className="text-sm font-semibold text-stone-700">合併其他通路購買訂單（一併計算滿額）</span>
       </label>
       {merge.orders.length > 0 && (
-        <div className="mt-2 bg-white border border-stone-200 rounded-xl px-4 py-3 space-y-1">
-          {merge.orders.map(m => (
-            <div key={m.order_no} className="flex items-center justify-between text-sm gap-2">
-              <span className="font-mono text-stone-600 truncate">
-                {m.order_no}{m.dupOf && <span className="text-amber-600 font-sans text-xs ml-2">⚠ 已用於 {m.dupOf}</span>}
-              </span>
-              <span className="font-bold text-stone-800 flex-shrink-0">NT${Number(m.amount).toLocaleString()}</span>
-            </div>
-          ))}
+        <div className="mt-1.5 bg-white border border-stone-200 rounded-xl px-3 py-2">
+          {/* 兩欄並排＋最多約 3 列高度，單號再多也不會把下方結帳區擠走（超出可在框內捲動）*/}
+          <div className="grid grid-cols-2 gap-x-5 gap-y-0.5 max-h-[4.5rem] overflow-y-auto">
+            {merge.orders.map(m => (
+              <div key={m.order_no} className="flex items-center justify-between text-xs gap-2">
+                <span className="font-mono text-stone-600 truncate">
+                  {m.order_no}{m.dupOf && <span className="text-amber-600 font-sans ml-1">⚠已用於 {m.dupOf}</span>}
+                </span>
+                <span className="font-bold text-stone-800 flex-shrink-0">NT${Number(m.amount).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
           <button type="button" onClick={() => merge.setShowPanel(true)}
             className="text-xs text-red-500 hover:text-red-700 font-semibold pt-1">＋ 新增／編輯</button>
         </div>
