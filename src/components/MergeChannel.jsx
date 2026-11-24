@@ -9,6 +9,14 @@ import { supabase } from '../lib/supabase'
 import { toast } from './StatusBadge'
 import { computeGifts, nextGiftStep, giftText } from '../lib/gifts'
 
+// 寫入資料庫的合併明細（現場發票標 kind、手動確認付款標 manual_paid）
+export const mergedRow = m => ({
+  order_no: m.order_no, amount: m.amount,
+  ...(m.kind ? { kind: m.kind } : {}),
+  ...(m.manual_paid ? { manual_paid: true } : {}),
+})
+export const INVOICE_RE = /^[A-Z]{2}\d{8}$/
+
 export function useMergeChannel({ orderId = null } = {}) {
   const [enabled, setEnabled]     = useState(false)
   const [orders, setOrdersState]  = useState([])   // [{ order_no, amount, dupOf? }]
@@ -16,6 +24,7 @@ export function useMergeChannel({ orderId = null } = {}) {
   const [no, setNo]               = useState('')
   const [amt, setAmt]             = useState('')
   const [warn, setWarn]           = useState('')
+  const [mode, setMode]           = useState('order')   // order＝其他通路訂單；invoice＝現場發票
 
   // 外掛事件在 window 上收，用 ref 取最新值，避免重複綁定
   const ordersRef  = useRef([])
@@ -32,7 +41,7 @@ export function useMergeChannel({ orderId = null } = {}) {
 
   const reset = useCallback((initial = []) => {
     setOrders(initial); setEnabled(initial.length > 0)
-    setShowPanel(false); setNo(''); setAmt(''); setWarn('')
+    setShowPanel(false); setNo(''); setAmt(''); setWarn(''); setMode('order')
   }, [setOrders])
 
   function toggle(checked) {
@@ -49,14 +58,19 @@ export function useMergeChannel({ orderId = null } = {}) {
 
   // auto = 外掛查詢後自動加入：已被別筆收款單合併過（已兌換）的單號不會自動加入，改為警示；
   // 回傳 { ok, msg }。手動輸入時重複仍可加入（由人判斷），但會標警示。
-  const addOrder = useCallback(async (noRaw, amount, auto = false) => {
-    const orderNo = String(noRaw ?? '').trim().toUpperCase()
+  const addOrder = useCallback(async (noRaw, amount, auto = false, extra = {}) => {
+    const isInv = extra.kind === 'invoice'
+    const orderNo = isInv
+      ? String(noRaw ?? '').toUpperCase().replace(/[\s-]/g, '')
+      : String(noRaw ?? '').trim().toUpperCase()
     const amountN = Number(amount)
+    const what = isInv ? '發票' : '單號'
     const fail = msg => { if (!auto) setWarn(msg); return { ok: false, msg } }
-    if (!orderNo) return fail('請輸入其他通路的訂單編號')
-    if (!amountN || amountN <= 0) return fail('請輸入該筆訂單的金額（發票金額）')
-    if (ordersRef.current.some(m => m.order_no === orderNo)) return fail(auto ? `${orderNo}：已經加入了` : '這個單號已經加入了')
-    // 檢查這張單是否已被別筆（有效的）收款單合併過，避免同一張單重複換贈品；已取消／整筆退款的收款單不算
+    if (!orderNo) return fail(isInv ? '請輸入發票號碼' : '請輸入其他通路的訂單編號')
+    if (isInv && !INVOICE_RE.test(orderNo)) return fail('發票號碼格式為 2 個英文字母＋8 位數字，例如 AB12345678')
+    if (!amountN || amountN <= 0) return fail(isInv ? '請輸入該張發票的金額' : '請輸入該筆訂單的金額（發票金額）')
+    if (ordersRef.current.some(m => m.order_no === orderNo)) return fail(auto ? `${orderNo}：已經加入了` : `這個${what}已經加入了`)
+    // 檢查這張單／發票是否已被別筆（有效的）收款單合併過，避免同一張重複換贈品；已取消／整筆退款的收款單不算
     let dup = null
     try {
       let q = supabase.from('orders').select('order_no, paid_at, created_at')
@@ -68,9 +82,13 @@ export function useMergeChannel({ orderId = null } = {}) {
     } catch {}
     const dupText = dup ? `${dup.order_no}（${fmtTime(dup.paid_at || dup.created_at)}）` : ''
     if (dup && auto) return { ok: false, msg: `${orderNo}：已在 ${dupText} 兌換過，未加入` }
-    setOrders(prev => [...prev, { order_no: orderNo, amount: amountN, dupOf: dup?.order_no || null }])
+    setOrders(prev => [...prev, {
+      order_no: orderNo, amount: amountN, dupOf: dup?.order_no || null,
+      ...(isInv ? { kind: 'invoice' } : {}),
+      ...(extra.manual_paid ? { manual_paid: true } : {}),
+    }])
     setNo(''); setAmt('')
-    if (dup) { setWarn(`⚠️ 此單號已在 ${dupText} 合併計算過，請確認是否重複領取`); return { ok: true, dup: true } }
+    if (dup) { setWarn(`⚠️ 此${what}已在 ${dupText} 合併計算過，請確認是否重複領取`); return { ok: true, dup: true } }
     setWarn('')
     return { ok: true }
   }, [setOrders])
@@ -126,14 +144,14 @@ export function useMergeChannel({ orderId = null } = {}) {
       const issue = msg => { if (batch.active) batch.issues.push(msg); else setWarn(`⚠️ ${msg}`) }
       if (d.ok && Number(d.amount) > 0) {
         if (batch.active) batch.pending++
-        addOrder(d.orderNo, d.amount, true).then(r => {
+        addOrder(d.orderNo, d.amount, true, d.manualPaid ? { manual_paid: true } : {}).then(r => {
           if (r?.ok) {
             if (d.processing) { /* 商城已是處理中：仍可加入，以本系統兌換紀錄為準 */ }
             if (batch.active) batch.added++
             else {
               // 沒收到「批次開始／結束」通知（外掛是舊版）：不能立刻關面板，否則後面還沒回來的單號會被漏掉；
               // 改成「最後一筆加入後 5 秒沒有新結果」才自動關閉
-              toast(`✓ 已加入其他通路 ${d.orderNo}　NT$${Number(d.amount).toLocaleString()}`, 'success', 2500)
+              toast(`✓ 已加入其他通路 ${d.orderNo}　NT$${Number(d.amount).toLocaleString()}${d.manualPaid ? '（手動確認付款）' : ''}`, 'success', 2500)
               clearTimeout(closeTimerRef.current)
               closeTimerRef.current = setTimeout(() => setShowPanel(false), 5000)
             }
@@ -154,7 +172,10 @@ export function useMergeChannel({ orderId = null } = {}) {
 
   // ── 確認收款成功後，請外掛把這次合併的商城單改成「訂單處理中」，並把結果記回收款單 ──
   const notifyPaid = useCallback((orderId, list) => {
-    const mergedList = (list || []).map(m => ({ order_no: m.order_no, amount: m.amount }))
+    const fullList = list || []
+    // 現場發票、手動確認付款（商城尚未入帳）的不需要外掛去改商城狀態
+    const mergedList = fullList.filter(m => m.kind !== 'invoice' && !m.manual_paid)
+      .map(m => ({ order_no: m.order_no, amount: m.amount }))
     if (mergedList.length === 0) return
     const nos = mergedList.map(m => m.order_no)
     let acked = false, done = false
@@ -176,7 +197,10 @@ export function useMergeChannel({ orderId = null } = {}) {
       if (orderId) {
         try {
           await supabase.from('orders').update({
-            merged_orders: mergedList.map(m => ({ ...m, shop: label[by[m.order_no]] || '未回報' })),
+            merged_orders: fullList.map(m => ({
+              ...mergedRow(m),
+              shop: m.kind === 'invoice' ? '現場發票' : m.manual_paid ? '手動確認付款（商城未入帳，待核對）' : (label[by[m.order_no]] || '未回報'),
+            })),
           }).eq('id', orderId)
         } catch {}
       }
@@ -202,11 +226,15 @@ export function useMergeChannel({ orderId = null } = {}) {
   }, [])
 
   const sum = orders.reduce((s, m) => s + Number(m.amount || 0), 0)
+  const invoiceSum   = orders.filter(m => m.kind === 'invoice').reduce((s, m) => s + Number(m.amount || 0), 0)
+  const invoiceCount = orders.filter(m => m.kind === 'invoice').length
 
   return {
     enabled, setEnabled, orders, setOrders, showPanel, setShowPanel,
-    no, setNo, amt, setAmt, warn, sum,
-    toggle, add: () => addOrder(no, amt), remove, close, reset, notifyPaid,
+    no, setNo, amt, setAmt, warn, sum, invoiceSum, invoiceCount, mode,
+    setMode: v => { setMode(v); setNo(''); setAmt(''); setWarn('') },
+    toggle, add: () => addOrder(no, amt, false, mode === 'invoice' ? { kind: 'invoice' } : {}),
+    remove, close, reset, notifyPaid,
   }
 }
 
@@ -217,7 +245,7 @@ export function MergeChannelRow({ merge }) {
       <label className="flex items-center gap-2 cursor-pointer select-none">
         <input type="checkbox" className="w-4 h-4 accent-red-500"
           checked={merge.enabled} onChange={e => merge.toggle(e.target.checked)} />
-        <span className="text-sm font-semibold text-stone-700">合併其他通路購買訂單（一併計算滿額）</span>
+        <span className="text-sm font-semibold text-stone-700">合併其他通路訂單／現場發票（一併計算滿額）</span>
       </label>
       {merge.orders.length > 0 && (
         <div className="mt-1.5 bg-white border border-stone-200 rounded-xl px-3 py-2">
@@ -226,7 +254,10 @@ export function MergeChannelRow({ merge }) {
             {merge.orders.map(m => (
               <div key={m.order_no} className="flex items-center justify-between text-xs gap-2">
                 <span className="font-mono text-stone-600 truncate">
-                  {m.order_no}{m.dupOf && <span className="text-amber-600 font-sans ml-1">⚠已用於 {m.dupOf}</span>}
+                  {m.kind === 'invoice' && <span className="font-sans mr-1">🧾</span>}
+                {m.order_no}
+                {m.manual_paid && <span className="text-orange-600 font-sans ml-1">⏳手動確認</span>}
+                {m.dupOf && <span className="text-amber-600 font-sans ml-1">⚠已用於 {m.dupOf}</span>}
                 </span>
                 <span className="font-bold text-stone-800 flex-shrink-0">NT${Number(m.amount).toLocaleString()}</span>
               </div>
@@ -251,10 +282,23 @@ export function MergeChannelModal({ merge, giftBase, giftList }) {
           <button onClick={merge.close} className="text-stone-400 hover:text-stone-600"><X size={20} /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-          <p className="text-xs text-stone-400">輸入客人在其他通路（例如網路商店）購買的訂單編號與發票金額，會與本單合併計算滿額（郵票金額不計入）。</p>
+          <div className="grid grid-cols-2 gap-1 bg-stone-100 rounded-xl p-1">
+            {[{ k: 'order', t: '其他通路訂單' }, { k: 'invoice', t: '🧾 現場發票' }].map(x => (
+              <button key={x.k} type="button" onClick={() => merge.setMode(x.k)}
+                className={`py-1.5 rounded-lg text-sm font-bold ${merge.mode === x.k ? 'bg-white shadow text-red-600' : 'text-stone-500'}`}>
+                {x.t}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-stone-400">
+            {merge.mode === 'invoice'
+              ? '客人之前在現場分次購買的發票：輸入發票號碼（例如 AB12345678）與發票金額，每張一列；郵票金額不計入。同一張發票只能兌換一次。'
+              : '輸入客人在其他通路（例如網路商店）購買的訂單編號與發票金額，會與本單合併計算滿額（郵票金額不計入）。'}
+          </p>
 
           <div className="flex gap-2">
-            <input className="input flex-1 font-mono text-sm" placeholder="其他通路訂單編號" autoFocus
+            <input key={merge.mode} className="input flex-1 font-mono text-sm" autoFocus
+              placeholder={merge.mode === 'invoice' ? '發票號碼 AB12345678' : '其他通路訂單編號'}
               value={merge.no} onChange={e => merge.setNo(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('merge-amt')?.focus() } }} />
             <input id="merge-amt" className="input w-28 text-sm" type="number" min="1" placeholder="金額"
@@ -270,7 +314,10 @@ export function MergeChannelModal({ merge, giftBase, giftList }) {
             <div className="space-y-1.5">
               {merge.orders.map(m => (
                 <div key={m.order_no} className="flex items-center justify-between bg-stone-50 rounded-xl px-3 py-2 text-sm gap-2">
-                  <span className="font-mono text-stone-700 truncate">{m.order_no}</span>
+                  <span className="font-mono text-stone-700 truncate">
+                    {m.kind === 'invoice' && <span className="font-sans mr-1">🧾</span>}{m.order_no}
+                    {m.manual_paid && <span className="text-orange-600 font-sans text-xs ml-1">⏳手動確認付款</span>}
+                  </span>
                   <span className="flex items-center gap-3 flex-shrink-0">
                     <b>NT${Number(m.amount).toLocaleString()}</b>
                     <button type="button" onClick={() => merge.remove(m.order_no)} className="text-stone-400 hover:text-red-500"><X size={14} /></button>
@@ -278,7 +325,9 @@ export function MergeChannelModal({ merge, giftBase, giftList }) {
                 </div>
               ))}
               <div className="flex justify-between text-sm pt-1 border-t border-stone-100">
-                <span className="text-stone-500">其他通路合計</span>
+                <span className="text-stone-500">
+                  合計{merge.invoiceCount > 0 && <>（含現場發票 {merge.invoiceCount} 張 NT${merge.invoiceSum.toLocaleString()}）</>}
+                </span>
                 <b>NT${merge.sum.toLocaleString()}</b>
               </div>
             </div>
@@ -303,7 +352,7 @@ export function MergeChannelModal({ merge, giftBase, giftList }) {
 }
 
 // ── 滿額贈品提示卡 ───────────────────────────────────────────
-export function GiftCard({ tiers, invoice, mergedSum = 0, children }) {
+export function GiftCard({ tiers, invoice, mergedSum = 0, invoiceSum = 0, invoiceCount = 0, children }) {
   if (!tiers?.length) return null
   const base = invoice + mergedSum
   const calc = computeGifts(tiers, base)
@@ -317,7 +366,8 @@ export function GiftCard({ tiers, invoice, mergedSum = 0, children }) {
         <p className="text-sm font-black text-red-700">🎁 滿額贈品</p>
         <p className="text-base text-stone-500">
           發票 NT${invoice.toLocaleString()}
-          {mergedSum > 0 && <> ＋ 其他通路 NT${mergedSum.toLocaleString()}</>}
+          {mergedSum - invoiceSum > 0 && <> ＋ 其他通路 NT${(mergedSum - invoiceSum).toLocaleString()}</>}
+          {invoiceSum > 0 && <> ＋ 現場發票 NT${invoiceSum.toLocaleString()}（{invoiceCount} 張）</>}
           {' '}＝ <b className="text-stone-800">NT${base.toLocaleString()}</b>
         </p>
       </div>

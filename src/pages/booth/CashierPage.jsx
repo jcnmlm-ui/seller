@@ -7,7 +7,7 @@ import { STORE, PAYMENT_LABELS } from '../../config/store'
 import { useEnabledPaymentMethods } from '../../hooks/useEnabledPaymentMethods'
 import { toast } from '../../components/StatusBadge'
 import { computeGifts, giftText } from '../../lib/gifts'
-import { useMergeChannel, MergeChannelRow, MergeChannelModal, GiftCard } from '../../components/MergeChannel'
+import { useMergeChannel, MergeChannelRow, MergeChannelModal, GiftCard, mergedRow } from '../../components/MergeChannel'
 
 // 現場庫存提醒：booth_stock 為 null＝不追蹤；剩餘 ≤ 0 一律提醒，其餘低於 booth_low_alert 才提醒
 function boothStockState(boothStock, lowAlert, qty) {
@@ -273,7 +273,7 @@ export default function CashierPage() {
   }
   async function handleRedeem() {
     if (confirming) return
-    if (merge.orders.length === 0) { toast('請先加入其他通路訂單', 'error'); return }
+    if (merge.orders.length === 0) { toast('請先加入其他通路訂單或現場發票', 'error'); return }
     if (giftList.length === 0) { toast('合併金額未達滿額門檻，沒有贈品可領', 'error'); return }
     setConfirming(true)
     try {
@@ -282,7 +282,7 @@ export default function CashierPage() {
         receiver_name: '預購領贈品', receiver_phone: '—', receiver_address: '現場領取',
         total_amount: 0, status: 'delivered', payment_method: null,
         paid_at: now, shipped_at: now, source: 'gift_redeem',
-        merged_orders:    merge.orders.map(m => ({ order_no: m.order_no, amount: m.amount })),
+        merged_orders:    merge.orders.map(mergedRow),
         promo_gift:       giftText(giftList),
         promo_gift_items: giftList.map(g => ({ name: g.name, qty: g.qty })),
       }
@@ -337,7 +337,7 @@ export default function CashierPage() {
         source:           'booth_cashier',
       }
       const mergeRow = {
-        merged_orders:    merge.orders.map(m => ({ order_no: m.order_no, amount: m.amount })),
+        merged_orders:    merge.orders.map(mergedRow),
         promo_gift:       giftList.length ? giftText(giftList) : null,
         promo_gift_items: giftList.map(g => ({ name: g.name, qty: g.qty })),
       }
@@ -581,7 +581,7 @@ export default function CashierPage() {
                 <p className="font-black text-lg text-stone-800">🎁 預購領取滿額贈</p>
                 <p className="text-xs text-stone-400 mt-0.5">客人沒有在現場購買，只用其他通路的訂單合併計算滿額領贈品</p>
               </div>
-              <GiftCard tiers={tiers} invoice={0} mergedSum={merge.sum} />
+              <GiftCard tiers={tiers} invoice={0} mergedSum={merge.sum} invoiceSum={merge.invoiceSum} invoiceCount={merge.invoiceCount} />
               <MergeChannelRow merge={merge} />
               <button type="button" onClick={handleRedeem} disabled={confirming || merge.orders.length === 0 || giftList.length === 0}
                 className="btn-primary w-full py-5 text-xl font-black rounded-2xl shadow-lg mt-auto disabled:opacity-40">
@@ -658,7 +658,7 @@ export default function CashierPage() {
               </div>
 
               {/* 滿額贈品提示（現場購買＋其他通路合併）*/}
-              <GiftCard tiers={tiers} invoice={invoiceAmt} mergedSum={merge.sum} />
+              <GiftCard tiers={tiers} invoice={invoiceAmt} mergedSum={merge.sum} invoiceSum={merge.invoiceSum} invoiceCount={merge.invoiceCount} />
               <MergeChannelRow merge={merge} />
 
               {/* 選了非現金付款、但購物車含郵票商品時，明顯提醒收款人員 */}

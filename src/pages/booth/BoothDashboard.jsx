@@ -7,7 +7,7 @@ import { PAYMENT_LABELS, STORE } from '../../config/store'
 import { useEnabledPaymentMethods } from '../../hooks/useEnabledPaymentMethods'
 import { toast } from '../../components/StatusBadge'
 import { computeGifts, nextGiftStep, giftText } from '../../lib/gifts'
-import { useMergeChannel, MergeChannelRow, MergeChannelModal, GiftCard } from '../../components/MergeChannel'
+import { useMergeChannel, MergeChannelRow, MergeChannelModal, GiftCard, mergedRow } from '../../components/MergeChannel'
 
 export default function BoothDashboard() {
   const navigate = useNavigate()
@@ -189,7 +189,7 @@ export default function BoothDashboard() {
     setConfirming(true)
     const basePatch = { status: 'paid', payment_method: payMethod, paid_at: new Date().toISOString() }
     const mergePatch = {
-      merged_orders:    mergedOrders.map(m => ({ order_no: m.order_no, amount: m.amount })),
+      merged_orders:    mergedOrders.map(mergedRow),
       promo_gift:       giftList.length ? giftText(giftList) : null,
       promo_gift_items: giftList.map(g => ({ name: g.name, qty: g.qty })),
     }
@@ -374,7 +374,9 @@ export default function BoothDashboard() {
 
   // 滿額贈品提示卡（待收款時即時試算；已收款則顯示當時的合併紀錄）
   const giftCard = order && order.status !== 'refunded' && order.status !== 'cancelled' && tiers.length > 0 ? (
-    <GiftCard tiers={tiers} invoice={curInvoice} mergedSum={mergedSum}>
+    <GiftCard tiers={tiers} invoice={curInvoice} mergedSum={mergedSum}
+      invoiceSum={mergedOrders.filter(m => m.kind === 'invoice').reduce((x, m) => x + Number(m.amount || 0), 0)}
+      invoiceCount={mergedOrders.filter(m => m.kind === 'invoice').length}>
       {/* 已收款：顯示當時合併的其他通路訂單與記錄的贈品 */}
       {!isPending && mergedOrders.length > 0 && (
         <div className="mt-2 pt-2 border-t border-red-100 text-xs text-stone-500 space-y-0.5">

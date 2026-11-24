@@ -563,7 +563,7 @@ export default function ReportsDashboard() {
                           <div key={o.id} className="text-xs bg-stone-50 rounded-lg px-3 py-2 flex flex-wrap gap-x-3 gap-y-0.5">
                             <span className="text-stone-400">{new Date(o.created_at).toLocaleString('zh-TW', { hour12: false })}</span>
                             <span className="font-mono text-stone-600">{o.order_no}</span>
-                            <span className="text-stone-700">{mergedOrdersOf(o).map(m => `${m.order_no}（$${Number(m.amount).toLocaleString()}）`).join('、')}</span>
+                            <span className="text-stone-700">{mergedOrdersOf(o).map(m => `${m.kind === 'invoice' ? '🧾' : ''}${m.order_no}${m.manual_paid ? '⏳' : ''}（$${Number(m.amount).toLocaleString()}）`).join('、')}</span>
                             <span className="text-red-600 font-semibold">🎁 {o.promo_gift}</span>
                             {mergedOrdersOf(o).some(m => m.shop === '改狀態失敗') && <span className="text-red-500">⚠️ 有商城單改狀態失敗</span>}
                           </div>
