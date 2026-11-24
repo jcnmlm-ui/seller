@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         郵政商城 訂單查詢／改訂單處理中（C1910）
 // @namespace    topmall-c1910
-// @version      1.6.3
+// @version      1.7.0
 // @description  在商店後台用你自己的登入狀態查訂單，並可把「已付款＋未出貨」的出貨單改成訂單處理中
 // @match        https://topmall.post.gov.tw/*
 // @match        https://jcnmlm-ui.github.io/seller/*
@@ -294,9 +294,17 @@
   // 查完單號後通知收款頁（#/booth）：合併面板開著時，會自動把單號與金額填進欄位
   // 只有「已付款、訂單成立」才帶入金額；取消／逾期／未付款只帶單號並提示原因
   var quiet = false;   // 確認收款後的自動改狀態不要再回報查詢結果
+  var manualPaid = false;   // 「已確認付款」開關：只對下一批查詢有效，查完自動關閉
+
+  // 手動確認付款時的面板文字（不改商城狀態，因為商城還沒入帳）
+  function manualOverride(info) {
+    if (!manualPaid || !info) return null;
+    if (info.pay.indexOf('未付款') < 0 || info.setup.indexOf('取消') >= 0 || info.setup.indexOf('逾期') >= 0) return null;
+    return tidy(amt(info) + ' 商城顯示未付款，已手動視為付款（不會改商城狀態，請之後核對）');
+  }
   function notifyBooth(orderNo, info) {
     try {
-      var ok = false, amount = null, reason = '', processing = false;
+      var ok = false, amount = null, reason = '', processing = false, manual = false;
       if (!info) reason = '查無此單號';
       else {
         var a = String(info.amount).replace(/,/g, '');
@@ -304,7 +312,12 @@
         var c = classify(info), code = c[0];
         if (info.setup.indexOf('取消') >= 0) reason = '訂單已取消';
         else if (info.setup.indexOf('逾期') >= 0) reason = '訂單逾期';
-        else if (info.pay.indexOf('未付款') >= 0) reason = '訂單未付款';
+        else if (info.pay.indexOf('未付款') >= 0 && manualPaid) {
+          // 已按「已確認付款」：商城後台尚未入帳（例如劃撥週一才查得到），仍視為成功帶入
+          if (amount === null || amount <= 0) reason = '讀不到金額';
+          else { ok = true; manual = true; }
+        }
+        else if (info.pay.indexOf('未付款') >= 0) reason = '訂單未付款（若已確認收款，請按外掛的「已確認付款」再查一次）';
         else if (code === '3') reason = '訂單已出貨';
         else if (code === '4') reason = '訂單已送達';
         else if (amount === null || amount <= 0) reason = '讀不到金額';
@@ -312,7 +325,7 @@
         else reason = c[1].replace(amt(info) + ' ', '');
       }
       if (!ON_TOPMALL && !quiet) window.dispatchEvent(new CustomEvent('topmall-order-result',
-        { detail: JSON.stringify({ orderNo: orderNo, ok: ok, amount: amount, reason: reason, processing: processing }) }));
+        { detail: JSON.stringify({ orderNo: orderNo, ok: ok, amount: amount, reason: reason, processing: processing, manualPaid: manual }) }));
     } catch (e) {}
   }
 
@@ -427,6 +440,7 @@
   async function lookup(orderNo) {
     var info = await gather(orderNo);
     notifyBooth(orderNo, info);
+    var mo = manualOverride(info); if (mo) return mo;
     var c = classify(info);
     if (c[0] === '1') return tidy(amt(info) + (info.ships.length > 1 ? ' 已付款＋共' + info.ships.length + '張出貨單、含未出貨，尚未修改（按「查詢並修改」才會全部改）' : ' 已付款＋未出貨，尚未修改（按「查詢並修改」才會改）'));
     return tidy(c[1]);
@@ -435,6 +449,7 @@
   async function processOrder(orderNo) {
     var info = await gather(orderNo);
     notifyBooth(orderNo, info);
+    var mo = manualOverride(info); if (mo) return mo;
     var c = classify(info);
     if (c[0] !== '1') return tidy(c[1]);
     return tidy(await saveProcessing(orderNo, amt(info), c[1]));
@@ -455,7 +470,12 @@
   }
 
   // ---------- panel ----------
-  var busy = false, panel, ta, pv, out, btnQ, btnP, kaEl, host, bodyEl, tog;
+  var busy = false, panel, ta, pv, out, btnQ, btnP, kaEl, host, bodyEl, tog, mpBtn, mpCss;
+  function setManualPaid(v) {
+    manualPaid = !!v;
+    if (mpBtn) { mpBtn.style.cssText = manualPaid ? mpCss.on : mpCss.off; mpBtn.textContent = manualPaid ? '✓已確認付款' : '已確認付款'; }
+    updatePreview();
+  }
   function el(tag, css, text) { var e = document.createElement(tag); if (css) e.style.cssText = css; if (text) e.textContent = text; return e; }
 
   function buildPanel() {
@@ -497,6 +517,14 @@
       };
       pad.appendChild(b);
     });
+    // 紅圈位置：已確認付款（開關；只對下一批查詢有效）
+    var mpOff = 'padding:4px 0;font:bold 15px/1.15 sans-serif;cursor:pointer;background:#fff;color:#a55;border:2px dashed #c88;border-radius:6px';
+    var mpOn  = 'padding:4px 0;font:bold 15px/1.15 sans-serif;cursor:pointer;background:#e67e00;color:#fff;border:2px solid #b35f00;border-radius:6px';
+    mpBtn = el('button', mpOff, '已確認付款');
+    mpBtn.title = '商城後台還查不到付款（例如劃撥週一才入帳），但你已確認客人付了：按下後，下一次查詢會把「未付款」的單視為成功加入計算。查完自動關閉。';
+    mpBtn.onclick = function () { setManualPaid(!manualPaid); ta.focus(); };
+    pad.appendChild(mpBtn);
+    mpCss = { on: mpOn, off: mpOff };
     out = el('div', 'max-height:260px;overflow:auto;font:16px monospace;white-space:pre-wrap;user-select:text');
     pv = el('div', 'min-height:22px;margin-top:4px;font:15px/1.4 monospace;color:#0a7d3b;word-break:break-all');
     ta.addEventListener('input', updatePreview);
@@ -540,8 +568,9 @@
     var r = parseInput(ta.value);
     var t = r.list.length ? '將查詢：' + r.list.join('、') : '';
     if (r.bad.length) t += (t ? '　' : '') + '⚠ 位數不符將略過：' + r.bad.join('、');
+    if (manualPaid) t += (t ? '　' : '') + '✓ 已確認付款：下一次查詢會把未付款視為成功';
     pv.textContent = t;
-    pv.style.color = r.bad.length ? '#b00' : '#0a7d3b';
+    pv.style.color = r.bad.length ? '#b00' : (manualPaid ? '#c60' : '#0a7d3b');
   }
 
   async function go(doSave) {
@@ -565,7 +594,7 @@
           break;
         }
       }
-    } finally { busy = false; btnQ.disabled = btnP.disabled = false; sendBatch('end', nums.length); }
+    } finally { busy = false; btnQ.disabled = btnP.disabled = false; sendBatch('end', nums.length); if (manualPaid) setManualPaid(false); }
   }
 
   // 通知收款頁「這一批查詢開始／結束」：整批查完才一次關閉合併面板，不會漏單
@@ -604,6 +633,7 @@
 
   function colorFor(res) {
     if (res === EXPIRED_MSG || /未修改$|未全部修改$|查詢失敗/.test(res)) return '#b00';
+    if (/已手動視為付款/.test(res)) return '#c60';
     if (/已修改為訂單處理中$/.test(res)) return '#0a7d3b';
     return '#222';
   }
