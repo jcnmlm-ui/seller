@@ -291,6 +291,12 @@ Body: { template: 'label' | 'shipping_slip_a4', data: { ...} }
 - 訂單確認頁（OrderConfirm）提示「請於 M/D 19:00 前到攤位結帳，逾時自動取消」（10:00 下單→當天 19:00；20:00 下單→隔天 19:00；邏輯在 `src/lib/pending.js`，與 SQL `pending_cutoff()` 一致，改時間兩邊都要改）
 - 攤位收款頁掃到已取消訂單會顯示「此訂單已取消」，不能收款
 
+### 託運單匯出／匯入（OrderDashboard 🚚 託運單，`src/components/ShipmentTools.jsx`，邏輯在 `src/lib/shipping.js`）
+- 匯出：選狀態（預設已包裝）、勾訂單、設每筆包裹數（一個訂單展開成 N 列；哈雷填件數）→ 下載 EZpost 格式（每檔 100 筆，超過打包 zip）或哈雷列印格式；同時把這一批寫進 `shipment_batches`。寄件人讀 settings 表；包裹／內裝物品設定存瀏覽器 localStorage。範本資料 `src/lib/shippingData.js` 與 `public/topmall_export.user.js` 同步
+- i 郵箱訂單：地址＝`receiver_address`（郵箱名稱）＋`ibox_full_address`（完整地址），EZpost 的「收件地址」欄放郵箱名稱
+- 匯入：放 EZpost 託運單 PDF（只讀有「掛號號碼」的執據／存根頁，用 pdfjs-dist，按下匯入才動態載入）或哈雷回傳 xlsx。哈雷靠備註的訂單編號（匯出時自動寫入）；EZpost 靠「PDF 收件人順序＝匯出批次某個檔案的順序」找批次。同一訂單多個包裹時 `orders.tracking_no` 用逗號串起來。收件資料在匯出後被改、訂單已取消/退款 → 標「請核對」預設不勾
+- 可勾「同時把已包裝改成已出貨」
+
 ### 銷售報表
 - 篩選：期間（快捷+自訂）× 來源（全部/預購/現場/領贈品）
 - 「🎁 滿額贈品發放」卡片：領贈品筆數、合併其他通路單張數、各贈品發放總數（預購取貨＋現場＋領贈品合計，並列出其中「領贈品」的數量）、領贈品明細（時間／單號／合併單號與金額／贈品／商城單改狀態失敗警示）；舊訂單沒有 promo_gift_items 時改解析 promo_gift 文字。`gift_redeem` 不計入筆數、營業額、付款方式等銷售統計
@@ -327,6 +333,7 @@ repo 的 `supabase/` 資料夾只有前 3 個（初始架構）。
 | 21 | `21_booth_only.sql`：products.booth_only（僅現場販售；預購頁 ProductList 不顯示，現場收銀 CashierPage 刷條碼仍可查到；僅前端過濾，RLS 仍公開讀取） |
 | 22 | `22_order_lock.sql`：臨時封鎖預購下單（decrement_stock 最前面檢查時間，2026-11-20 00:00 前拒絕；前端見 `src/lib/orderLock.js`）；時間一過自動失效 |
 | 23 | `23_booth_stock.sql`：products.booth_stock（現場庫存，NULL＝不追蹤）／booth_low_alert（刷讀時低於此數字就警告）、orders.booth_stock_deducted、booth_deduct_stock(order_id)（現場收款後扣）；只警告不阻擋，預購單不扣現場庫存；現場收銀單目前沒有退款功能，退貨時請到後台直接改現場庫存 |
+| 25 | `25_shipment_batches.sql`：shipment_batches（託運單匯出批次紀錄：kind='ezpost'｜'harley'、operator、rows jsonb＝每個包裹的 order_no／收件資料指紋／件數編號 k/n／所屬檔案 file／檔內順序 pos）；後台「🚚 託運單」匯出 EZpost／哈雷時寫入，匯入託運單號時靠它對回訂單 |
 
 ---
 

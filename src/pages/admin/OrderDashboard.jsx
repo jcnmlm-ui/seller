@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react'
 import { flushSync } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useReactToPrint } from 'react-to-print'
@@ -12,6 +12,9 @@ import {
   LogOut, Package, Search, Printer, ChevronDown, ChevronUp,
   RefreshCw, X, Truck, Edit2, CheckSquare, Square, Loader2,
 } from 'lucide-react'
+
+// 託運單匯出／匯入（EZpost、哈雷）：用到才載入，避免拖慢後台首頁
+const ShipmentTools = lazy(() => import('../../components/ShipmentTools'))
 
 const TABS = ['paid', 'picking', 'packed', 'shipped']
 const LOCAL_PRINT_API = 'http://127.0.0.1:3001'
@@ -266,6 +269,7 @@ export default function OrderDashboard() {
   const [pickingList, setPickingList]   = useState(null) // { orders, items }
   const [bulkLoading, setBulkLoading]       = useState(false) // 批次更新處理中
   const [pickingLoading, setPickingLoading] = useState(false) // 揀貨清單彙整中
+  const [shipTools, setShipTools] = useState(false) // 託運單匯出／匯入視窗
   const printRef  = useRef(null)
   const autoPrint = useRef({ active: false })
   const { signOut } = useAuth()
@@ -634,6 +638,12 @@ export default function OrderDashboard() {
             <span className="text-[10px]">重新整理</span>
           </button>
         
+          <button onClick={() => setShipTools(true)}
+            className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
+            <span className="text-sm leading-none">🚚</span>
+            <span className="text-[10px]">託運單</span>
+          </button>
+
           <Link to="/admin/pending"
             className="flex flex-col items-center gap-0.5 px-3 py-2 text-stone-400 hover:text-white transition-colors rounded-lg hover:bg-stone-800">
             <span className="text-sm leading-none">⏳</span>
@@ -808,6 +818,18 @@ export default function OrderDashboard() {
           items={pickingList.items}
           onClose={() => setPickingList(null)}
         />
+      )}
+
+      {/* 託運單匯出／匯入 */}
+      {shipTools && (
+        <Suspense fallback={null}>
+          <ShipmentTools
+            orders={orders}
+            senderSettings={senderSettings}
+            onClose={() => setShipTools(false)}
+            onDone={loadOrders}
+          />
+        </Suspense>
       )}
 
       {/* 追蹤號碼 Modal */}
