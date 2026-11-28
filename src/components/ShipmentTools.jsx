@@ -58,13 +58,19 @@ export default function ShipmentTools({ orders, senderSettings, onClose, onDone 
 
   // ── 匯出 ───────────────────────────────────────────────
   const [status, setStatus] = useState('packed')
+  const [addrType, setAddrType] = useState('all') // all｜normal｜box
   const [checked, setChecked] = useState(new Set())
   const [pkgs, setPkgs] = useState({})
   const [busy, setBusy] = useState(false)
 
-  const list = useMemo(
+  const inStatus = useMemo(
     () => orders.filter(o => o.status === status).sort((a, b) => a.created_at.localeCompare(b.created_at)),
     [orders, status]
+  )
+  const nBox = inStatus.filter(o => o.ibox_full_address).length
+  const list = useMemo(
+    () => inStatus.filter(o => addrType === 'all' || (addrType === 'box') === !!o.ibox_full_address),
+    [inStatus, addrType]
   )
   useEffect(() => { setChecked(new Set(list.filter(o => !o.tracking_no).map(o => o.id))) }, [list])
 
@@ -229,6 +235,15 @@ export default function ShipmentTools({ orders, senderSettings, onClose, onDone 
                   </button>
                 ))}
               </div>
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <span className="text-sm text-stone-500">地址：</span>
+                {[['all', '全部', inStatus.length], ['normal', '一般地址', inStatus.length - nBox], ['box', 'i郵箱', nBox]].map(([k, t, n]) => (
+                  <button key={k} onClick={() => setAddrType(k)}
+                    className={`px-3 py-1 rounded-full text-sm font-semibold ${addrType === k ? 'bg-stone-900 text-white' : 'bg-stone-100 text-stone-600'}`}>
+                    {t} {n}
+                  </button>
+                ))}
+              </div>
               <div className="border border-stone-200 rounded-xl overflow-hidden">
                 <div className="bg-stone-50 px-3 py-2 flex items-center gap-3 text-xs font-bold text-stone-500">
                   <label className="flex items-center gap-2 w-14">
@@ -244,7 +259,7 @@ export default function ShipmentTools({ orders, senderSettings, onClose, onDone 
                     <div key={o.id} className="px-3 py-2 flex items-center gap-3 text-sm">
                       <span className="w-14 flex-none"><input type="checkbox" checked={checked.has(o.id)} onChange={() => toggle(o.id)} /></span>
                       <div className="flex-1 min-w-0">
-                        <p className="font-mono text-xs text-stone-400">{o.order_no}{o.tracking_no && <span className="ml-2 text-emerald-600">已有託運單號 {o.tracking_no}</span>}</p>
+                        <p className="font-mono text-xs text-stone-400">{o.order_no}{o.ibox_full_address && <span className="ml-2 px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 font-sans font-bold">i郵箱</span>}{o.tracking_no && <span className="ml-2 text-emerald-600">已有託運單號 {o.tracking_no}</span>}</p>
                         <p className="font-semibold text-stone-800 truncate">{o.receiver_name}　<span className="font-normal text-stone-500">{o.receiver_phone}</span></p>
                         <p className="text-xs text-stone-500 truncate">{orderAddress(o).full}</p>
                       </div>
